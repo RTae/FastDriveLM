@@ -38,7 +38,6 @@ after run thuis script, the data will be organized as follows:
     │    ├── train_cot.json
     │    ├── val_cot.json
     │    └── val_qa_style.json
-    │
     └── split
          ├── train/
          └── val/
