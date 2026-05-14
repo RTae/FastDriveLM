@@ -9,10 +9,11 @@ class DriveLMNusTrainingConfig:
     model_preparation: str = "prepare_model_and_processor_paligemma"
     collate_fn_train: str = "drivelm_nus_paligemma_collate_fn_train"
     peft_name: Optional[str] = None
-    dataset_name: str = "data/DriveLM_nuScenes/split/train"
+    dataset_name: str = "datasets/DriveLM_nuScenes/split/train"
+    dataset_val_name: str = "datasets/DriveLM_nuScenes/split/val"
     wandb_project = None
     run_name: str = f"FULL-{datetime.now().strftime('%Y-%m-%d_%H-%M')}"
-    output_dir: str = "/data2/private-data/zhangn/pretrained/paligemma/" + f"{run_name}"
+    output_dir: str = "outputs/paligemma/" + f"{run_name}"
 
     num_train_epochs: int = 6
     batch_size_per_gpu: int = 1

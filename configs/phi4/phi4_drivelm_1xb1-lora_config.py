@@ -10,10 +10,11 @@ class DriveLMNusPhi4Config:
     collate_fn_train: str = "drivelm_nus_phi4_collate_fn"
     collate_fn_val: str = None
     peft_name: Optional[str] = None
-    dataset_name: str = "data/DriveLM_nuScenes/train"
+    dataset_name: str = "datasets/DriveLM_nuScenes/split/train"
+    dataset_val_name: str = "datasets/DriveLM_nuScenes/split/val"
     wandb_project = None
     run_name: str = f"FULL-{datetime.now().strftime('%Y-%m-%d_%H-%M')}"
-    output_dir: str = "/data2/private-data/zhangn/pretrained/phi4/" + f"{run_name}"
+    output_dir: str = "outputs/phi4/" + f"{run_name}"
 
     num_train_epochs: int = 3
     batch_size_per_gpu: int = 1
