@@ -28,16 +28,17 @@ python scripts/create_drivelm_nus.py datasets/v1_1_train_nus.json
 ```
 after run thuis script, the data will be organized as follows:
 ```bash
-/data
+/datasets
 └── DriveLM_nuScenes
     ├── nuscenes
-    │   └── samples
+    │    └── samples
     ├── QA_dataset_nus
-    │   └── v1_1_train_nus.json
+    │    └── v1_1_train_nus.json
     ├── refs
-    │   ├── train_cot.json
-    │   ├── val_cot.json
-    │   └── val_qa_style.json
+    │    ├── train_cot.json
+    │    ├── val_cot.json
+    │    └── val_qa_style.json
+    │
     └── split
          ├── train/
          └── val/
