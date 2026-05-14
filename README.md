@@ -14,7 +14,7 @@ uv sync
 source .venv/bin/activate
 ```
 
-## Fine-tune model
+## Fine-tune model (Optional)
 ### Prepare data
 
 1. Download data
