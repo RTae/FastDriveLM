@@ -19,6 +19,8 @@ dependencies = [
     "backoff==2.2.1",
     "peft==0.15.1",
     "datasets>=4.8.5",
+    "wandb>=0.27.0",
+    "tensorboard>=2.20.0",
 ]
 
 [tool.setuptools.packages.find]

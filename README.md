@@ -76,7 +76,7 @@ python tools/finetune.py configs/phi4/phi4_drivelm_1xb1-lora_config.py
 python tools/finetune.py configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py
 
 # Qwen3-VL — 2 GPUs
-accelerate launch --num_processes=2 tools/finetune.py configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py
+make fine_tune CONFIG=configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py NUMBER_OF_GPUS=2
 ```
 
 Checkpoints and logs are saved under `outputs/<model>/<run_name>/`.
