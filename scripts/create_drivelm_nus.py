@@ -1,12 +1,10 @@
 import json
 import os
 import re
-import numpy as np
 import json
 import random
 from datasets import Dataset
 import  argparse
-import torch
 import json
 import re
 
@@ -313,18 +311,18 @@ def create_drivelm_nus(args):
     val_frames = convert_coors_system(val_frames)
 
     # 将转换后的数据保存到文件中
-    os.makedirs("data/DriveLM_nuScenes/refs/",exist_ok=True)
+    os.makedirs("datasets/DriveLM_nuScenes/refs/",exist_ok=True)
     
-    with open("data/DriveLM_nuScenes/refs/train_cot.json", "w", encoding="utf-8") as f:
+    with open("datasets/DriveLM_nuScenes/refs/train_cot.json", "w", encoding="utf-8") as f:
         json.dump(train_frames, f, ensure_ascii=False, indent=2)
 
-    with open("data/DriveLM_nuScenes/refs/val_cot.json", "w", encoding="utf-8") as f:
+    with open("datasets/DriveLM_nuScenes/refs/val_cot.json", "w", encoding="utf-8") as f:
         json.dump(val_frames, f, ensure_ascii=False, indent=2)
 
     # convert to HF Dataset style
     output_train = convert2vlm(train_frames)
     output_val = convert2vlm(val_frames)
-    with open("data/DriveLM_nuScenes/refs/val_qa_style.json", "w", encoding="utf-8") as f:
+    with open("datasets/DriveLM_nuScenes/refs/val_qa_style.json", "w", encoding="utf-8") as f:
         json.dump(output_val, f, ensure_ascii=False, indent=2)
 
     # convert to HF style
@@ -340,8 +338,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("src", type=str, default=None, help='the json file download from DriveLM-nuScenes repo website')
     parser.add_argument("--resize_tgt", type=str, default=224, help='the pixel coordinate system to be transformed to')
-    parser.add_argument("--train_data", type=str, default='data/DriveLM_nuScenes/split/train/', help='the huggingface Dataset style data')
-    parser.add_argument("--val_data", type=str, default='data/DriveLM_nuScenes/split/val/', help='the huggingface Dataset style data')
+    parser.add_argument("--train_data", type=str, default='datasets/DriveLM_nuScenes/split/train/', help='the huggingface Dataset style data')
+    parser.add_argument("--val_data", type=str, default='datasets/DriveLM_nuScenes/split/val/', help='the huggingface Dataset style data')
     args = parser.parse_args()
     return args
 

@@ -9,3 +9,11 @@ uv sync
 ```bash
 source .venv/bin/activate
 ```
+
+## Fine-tune model
+### Prepare data
+
+1. Convert data into fine-tune format
+```bash
+python scripts/create_drivelm_nus.py datasets/v1_1_train_nus.json
+```
