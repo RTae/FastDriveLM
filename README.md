@@ -1,11 +1,15 @@
 # FastDriveLM
 
+## Pre-requisites
+- Python 3.12+
+- Install [uv](https://docs.astral.sh/uv/getting-started/installation/) for virtual environment management and dependency installation.
+
 ## Installation
 ```bash
 uv sync
 ```
 
-## How to develop
+## How to enter the virtual environment
 ```bash
 source .venv/bin/activate
 ```
