@@ -72,10 +72,10 @@ python tools/finetune.py configs/paligemma/paligemma_drivelm_config.py
 # Phi-4 — single GPU
 python tools/finetune.py configs/phi4/phi4_drivelm_1xb1-lora_config.py
 
-# Qwen2.5-VL / Qwen3-VL — single GPU
+# Qwen3-VL — single GPU
 python tools/finetune.py configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py
 
-# Qwen2.5-VL / Qwen3-VL — 2 GPUs
+# Qwen3-VL — 2 GPUs
 accelerate launch --num_processes=2 tools/finetune.py configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py
 ```
 
