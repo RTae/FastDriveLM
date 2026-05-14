@@ -3,7 +3,8 @@ name = "fastdrivelm"
 version = "0.2.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.8"
+
+requires-python = ">=3.12"
 authors = [
     { name = "rtae" }
 ]
@@ -24,7 +25,7 @@ where = ["src"]
 
 [build-system]
 requires = ["setuptools>=61"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
