@@ -26,7 +26,7 @@ make download_data
 ```bash
 make create_dataset
 ```
-after run thuis script, the data will be organized as follows:
+after running this script, the data will be organized as follows:
 ```bash
 /datasets
 └── DriveLM_nuScenes
