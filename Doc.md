@@ -11,50 +11,6 @@ It currently supports the following VLMs from huggingface and datasets availably
 
 Developers can use this framework to easily perform model inference and customize development, including fine-tuning new models on new datasets.
 
-# Getting Started
-## download and create data
-Download [v1_1_train_nus.json](https://drive.usercontent.google.com/download?id=1CvTPwChKvfnvrZ1Wr0ZNVqtibkkNeGgt&export=download&authuser=0) and [nus_images](https://drive.usercontent.google.com/download?id=1DeosPGYeM2gXSChjMODGsQChZyYDmaUz&export=download&authuser=0).
-The data should be organized as follows:
-```bash
-/data
-└── DriveLM_nuScenes
-    ├── nuscenes
-    │   └── samples
-    └── QA_dataset_nus
-        └── v1_1_train_nus.json
-```
-Since that the QA pairs in [v1_1_val_nus_q_only.json](https://drive.google.com/file/d/1fsVP7jOpvChcpoXVdypaZ4HREX1gA7As/view) doesn't have
-labels. We have re-partitioned the samples in `v1_1_train_nus.json`, splitting them into 80% and 20% subsets to form the training and test sets for fine-tuning and inference in this project.
-
-Run the following script to prepare the data.The data will be converted to HF dataset style.
-```bash
-python tools/create_data/create_drivelm_nus.py data/DriveLM_nuScenes/QA_dataset_nus/v1_1_train_nus.json
-```
-The the data origanization is
-```bash
-/data
-└── DriveLM_nuScenes
-    ├── nuscenes
-    │    └── samples
-    ├── QA_dataset_nus
-    │    └── v1_1_train_nus.json
-    ├── refs
-    │    ├── train_cot.json
-    │    ├── val_cot.json
-    │    └── val_qa_style.json
-    │
-    └── split
-         ├── train/
-         └── val/
-``
-
-## create enviroment
-```bash
-conda create -n DriveVLMs python==3.9 -y
-cd drivevlms
-python setup.py develop
-```
-
 # How to Use
 ## finetune
 ```bash

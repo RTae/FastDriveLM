@@ -3,6 +3,7 @@ import copy
 import json
 import os
 import random
+import shutil
 import re
 
 from datasets import Dataset
@@ -343,15 +344,28 @@ def create_drivelm_nus(args):
     save_json(os.path.join(REFS_DIR, "train_cot.json"), train_frames)
     save_json(os.path.join(REFS_DIR, "val_cot.json"), val_frames)
 
+    print("Data with rescaled coordinates saved to refs directory. Now converting to VLM format...")
     output_train = convert2vlm(train_frames)
     output_val = convert2vlm(val_frames)
     save_json(os.path.join(REFS_DIR, "val_qa_style.json"), output_val)
 
+    print ("Converted data saved to refs directory. Now converting to Hugging Face Dataset format...")
     train_dataset = convert_to_hf_dataset(output_train)
     val_dataset = convert_to_hf_dataset(output_val)
     train_dataset.save_to_disk(args.train_data)
     val_dataset.save_to_disk(args.val_data)
-    print("finished...")
+    
+    print ("Hugging Face Datasets saved. Now moving files to the final DriveLM-nuScenes dataset structure...")
+    # move datasets/v1_1_train_nus.json to datasets/DriveLM_nuScenes/QA_dataset_nus/v1_1_train_nus.json
+    os.makedirs(os.path.join("datasets", "DriveLM_nuScenes", "QA_dataset_nus"), exist_ok=True)
+    shutil.move("datasets/v1_1_train_nus.json", os.path.join("datasets", "DriveLM_nuScenes", "QA_dataset_nus", "v1_1_train_nus.json"))
+    
+    # move nus_images_train/nuscenes to datasets/DriveLM_nuScenes
+    shutil.move("datasets/nus_images_train/nuscenes", os.path.join("datasets", "DriveLM_nuScenes"))
+    # remove the empty nus_images_train directory
+    shutil.rmtree("datasets/nus_images_train")
+    
+    print("DriveLM-nuScenes dataset creation completed successfully.")
 
 
 def parse_args():

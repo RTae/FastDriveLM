@@ -19,12 +19,12 @@ source .venv/bin/activate
 
 1. Download data
 ```bash
-bash scripts/download_drivelm_nus.sh
+make download_data
 ```
 
 2. Convert data into fine-tune format
 ```bash
-python scripts/create_drivelm_nus.py datasets/v1_1_train_nus.json
+make create_dataset
 ```
 after run thuis script, the data will be organized as follows:
 ```bash
