@@ -27,7 +27,7 @@ def prepare_model_and_processor_qwen3vl(config):
 
     load_kwargs = dict(
         trust_remote_code=True,
-        torch_dtype=config.dtype,
+        dtype=config.dtype,
     )
 
     if config.quantization:
