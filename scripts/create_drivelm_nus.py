@@ -44,7 +44,7 @@ EGO_VEHICLE_BEHAVIOR_CHOICES = [
     "The ego vehicle is steering to the right. The ego vehicle is driving very fast.",
     "The ego vehicle is slightly steering to the left. The ego vehicle is driving fast.",
     "The ego vehicle is steering to the left. The ego vehicle is driving very fast.",
-    "The ego vehicle is going straight. The ego vehicle is driving not moving.",
+    "The ego vehicle is going straight. The ego vehicle is not moving.",
     "The ego vehicle is slightly steering to the right. The ego vehicle is driving with normal speed.",
     "The ego vehicle is steering to the right. The ego vehicle is driving slowly.",
     "The ego vehicle is steering to the right. The ego vehicle is driving with normal speed.",
