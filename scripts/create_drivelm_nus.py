@@ -1,221 +1,259 @@
+import argparse
+import copy
 import json
 import os
-import re
-import json
 import random
-from datasets import Dataset
-import  argparse
-import json
 import re
+
+from datasets import Dataset
+
+
+QA_CATEGORIES = ("perception", "prediction", "planning", "behavior")
+STATUS_QUESTION_PREFIX = "what is the moving status of object"
+PLANNING_QUESTION_PATTERNS = (
+    "what actions could the ego vehicle take",
+    "lead to a collision",
+    "safe actions",
+)
+TAG_MULTIPLE_CHOICE = (0,)
+TAG_PLANNING = (1,)
+TAG_IMPORTANCE = (2,)
+TAG_GRAPH = (3,)
+OPTION_LABELS = ("A", "B", "C", "D")
+MOVING_STATUS_CHOICES = [
+    "Going ahead.",
+    "Turn right.",
+    "Turn left.",
+    "Stopped.",
+    "Back up.",
+    "Reverse parking.",
+    "Drive backward.",
+]
+EGO_VEHICLE_BEHAVIOR_CHOICES = [
+    "The ego vehicle is slightly steering to the left. The ego vehicle is driving very fast.",
+    "The ego vehicle is steering to the left. The ego vehicle is driving with normal speed.",
+    "The ego vehicle is steering to the left. The ego vehicle is driving fast.",
+    "The ego vehicle is slightly steering to the right. The ego vehicle is driving fast.",
+    "The ego vehicle is going straight. The ego vehicle is driving slowly.",
+    "The ego vehicle is going straight. The ego vehicle is driving with normal speed.",
+    "The ego vehicle is slightly steering to the left. The ego vehicle is driving with normal speed.",
+    "The ego vehicle is slightly steering to the left. The ego vehicle is driving slowly.",
+    "The ego vehicle is slightly steering to the right. The ego vehicle is driving slowly.",
+    "The ego vehicle is slightly steering to the right. The ego vehicle is driving very fast.",
+    "The ego vehicle is steering to the right. The ego vehicle is driving fast.",
+    "The ego vehicle is steering to the right. The ego vehicle is driving very fast.",
+    "The ego vehicle is slightly steering to the left. The ego vehicle is driving fast.",
+    "The ego vehicle is steering to the left. The ego vehicle is driving very fast.",
+    "The ego vehicle is going straight. The ego vehicle is driving not moving.",
+    "The ego vehicle is slightly steering to the right. The ego vehicle is driving with normal speed.",
+    "The ego vehicle is steering to the right. The ego vehicle is driving slowly.",
+    "The ego vehicle is steering to the right. The ego vehicle is driving with normal speed.",
+    "The ego vehicle is going straight. The ego vehicle is driving very fast.",
+    "The ego vehicle is going straight. The ego vehicle is driving fast.",
+    "The ego vehicle is steering to the left. The ego vehicle is driving slowly.",
+]
+COORD_PATTERN = re.compile(r"<([^,]+),([^,]+),([0-9.]+),([0-9.]+)>")
+REFS_DIR = os.path.join("datasets", "DriveLM_nuScenes", "refs")
+
+
+def load_json(file_path):
+    with open(file_path, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def save_json(file_path, data):
+    with open(file_path, "w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=2)
+
+
+def iter_key_frames(scene_file):
+    for scene_id, scene_data in scene_file.items():
+        for frame_id, frame_data in scene_data["key_frames"].items():
+            yield scene_id, frame_id, frame_data
+
+
+def build_frame_entry(image_paths):
+    return {
+        "QA": {category: [] for category in QA_CATEGORIES},
+        "image_paths": image_paths,
+    }
+
+
+def tagged_copy(qa, tag):
+    qa_with_tag = dict(qa)
+    qa_with_tag["tag"] = list(tag)
+    return qa_with_tag
+
+
+def add_first_matching_qa(source_qas, target_qas, predicate, tag):
+    for qa in source_qas:
+        if predicate(qa):
+            target_qas.append(tagged_copy(qa, tag))
+            return
+
+
+def all_terms_in_text(terms, text):
+    lowered_text = text.lower()
+    return all(term.lower() in lowered_text for term in terms)
+
+
+def contains_yes_or_no(text):
+    lowered_text = text.lower()
+    return "yes" in lowered_text or "no" in lowered_text
+
+
+def extract_object_classes(frame_data_infos):
+    return [
+        obj_data["Visual_description"].split(".")[0]
+        for obj_data in frame_data_infos.values()
+    ]
+
+
+def append_planning_questions(planning_qas, target_qas):
+    found_patterns = set()
+
+    for qa in planning_qas:
+        question = qa["Q"].lower()
+
+        for pattern in PLANNING_QUESTION_PATTERNS:
+            if pattern in question and pattern not in found_patterns:
+                target_qas.append(tagged_copy(qa, TAG_PLANNING))
+                found_patterns.add(pattern)
+
+        if len(found_patterns) == len(PLANNING_QUESTION_PATTERNS):
+            return
+
+
+def build_multiple_choice_qa(question, answer, candidates):
+    options_pool = list(candidates)
+    if answer not in options_pool:
+        raise ValueError(f"Answer {answer!r} not found in choice pool.")
+
+    options_pool.remove(answer)
+    if len(options_pool) < 3:
+        raise ValueError("Multiple-choice generation requires at least 4 candidates.")
+
+    choices = random.sample(options_pool, 3)
+    choices.append(answer)
+    random.shuffle(choices)
+
+    prompt = (
+        f"{question} Please select the correct answer from the following options: "
+        f"A. {choices[0]} B. {choices[1]} C. {choices[2]} D. {choices[3]}"
+    )
+    return {"Q": prompt, "A": OPTION_LABELS[choices.index(answer)]}
+
 
 def extract_data(root_path):
+    train_file = load_json(root_path)
+    test_data = {}
 
-    with open(root_path, 'r') as f :#, \    
-        train_file = json.load(f)
+    for scene_id, frame_id, frame_data in iter_key_frames(train_file):
+        frame_data_infos = frame_data["key_object_infos"]
+        frame_data_qa = frame_data["QA"]
 
-    test_data=dict()
+        scene_entry = test_data.setdefault(scene_id, {"key_frames": {}})
+        frame_entry = build_frame_entry(frame_data["image_paths"])
+        scene_entry["key_frames"][frame_id] = frame_entry
 
-    # TODO: convert the data into test data, containing the importance, multiple choice questions, graph questions
-    for scene_id in train_file.keys():
-        scene_data = train_file[scene_id]['key_frames']
-        
-        # for test file
-        test_data[scene_id] = dict()
-        test_data[scene_id]['key_frames'] = dict()
+        object_classes = extract_object_classes(frame_data_infos)
+        object_locations = list(frame_data_infos)
+        qa_output = frame_entry["QA"]
 
-        for frame_id in scene_data.keys():
-            frame_data_infos = scene_data[frame_id]['key_object_infos']
-            frame_data_qa = scene_data[frame_id]['QA']
-            image_paths = scene_data[frame_id]['image_paths']
-
-            # for test file
-            test_data[scene_id]['key_frames'][frame_id] = dict()
-            # test_data[scene_id]['key_frames'][frame_id]['key_object_infos'] = frame_data_infos
-            test_data[scene_id]['key_frames'][frame_id]['QA'] = dict()
-            test_data[scene_id]['key_frames'][frame_id]['image_paths'] = image_paths
-            test_data[scene_id]['key_frames'][frame_id]['QA']['perception'] = []
-            test_data[scene_id]['key_frames'][frame_id]['QA']['prediction'] = []
-            test_data[scene_id]['key_frames'][frame_id]['QA']['planning'] = []
-            test_data[scene_id]['key_frames'][frame_id]['QA']['behavior'] = []
-
-            # get the classes of the important objects
-            classes = []
-            for obj_id in frame_data_infos.keys():
-                obj_data = frame_data_infos[obj_id]
-                classes.append(obj_data['Visual_description'].split('.')[0])
-            print(classes)
-
-            # get the location of the important objects
-            locations = []
-            for obj_id in frame_data_infos.keys():
-                locations.append(obj_id)
-            print(locations)
-
-            # get the questions and answers of the perception
-            perception = frame_data_qa["perception"]
-            prediction = frame_data_qa["prediction"]
-            planning = frame_data_qa["planning"]
-            behavior = frame_data_qa["behavior"]
-
-            for qa in perception:
-                question = qa['Q']
-                answer = qa['A']
-
-                # according to the classes to select the corresponding question
-                flag = 1
-                for cl in classes:
-                    if cl.lower() not in answer.lower():
-                        flag = 0
-                if flag == 1:
-                    qa['tag'] = [2]
-                    test_data[scene_id]['key_frames'][frame_id]['QA']['perception'].append(qa)
-                    break
-                
-            # get the multiple choice questions and answers
-            for qa in perception:
-                question = qa['Q']
-                answer = qa['A']
-                if "What is the moving status of object".lower() in question.lower():
-                    qa['tag'] = [0]
-                    test_data[scene_id]['key_frames'][frame_id]['QA']['perception'].append(qa)
-                    break
-            
-            # get the graph questions and answers
-            for qa in prediction:
-                question = qa['Q']
-                answer = qa['A']
-
-                # according to the location to select the corresponding question
-                flag = 1
-                for loc in locations:
-                    if loc.lower() not in answer.lower():
-                        flag = 0
-                if flag == 1:
-                    qa['tag'] = [3]
-                    test_data[scene_id]['key_frames'][frame_id]['QA']['prediction'].append(qa)
-                    break
-
-            # get the yes or no questions and answers
-            for qa in prediction:
-                question = qa['Q']
-                answer = qa['A']
-                if "yes" in answer.lower() or "no" in answer.lower():
-                    qa['tag'] = [0]
-                    test_data[scene_id]['key_frames'][frame_id]['QA']['prediction'].append(qa)
-                    break
-
-            # get the three questions from the planning "safe actions", "collision", ""
-            actions_question_added = False
-            collision_question_added = False
-            safe_actions_question_added = False
-            for qa in planning:
-                question = qa['Q']
-                answer = qa['A']
-                if "What actions could the ego vehicle take".lower() in question.lower() and not actions_question_added:
-                    qa['tag'] = [1]
-                    test_data[scene_id]['key_frames'][frame_id]['QA']['planning'].append(qa)
-                    actions_question_added = True
-                if "lead to a collision" in question.lower() and not collision_question_added:
-                    qa['tag'] = [1]
-                    test_data[scene_id]['key_frames'][frame_id]['QA']['planning'].append(qa)
-                    collision_question_added = True
-                if "safe actions" in question.lower() and not safe_actions_question_added:
-                    qa['tag'] = [1]
-                    test_data[scene_id]['key_frames'][frame_id]['QA']['planning'].append(qa)
-                    safe_actions_question_added = True
-
-                # Check if all question types have been added and exit the loop
-                if actions_question_added and collision_question_added and safe_actions_question_added:
-                    break
-            
-            for qa in behavior:
-                question = qa['Q']
-                answer = qa['A']
-                qa['tag'] = [0]
-                test_data[scene_id]['key_frames'][frame_id]['QA']['behavior'].append(qa)
+        add_first_matching_qa(
+            frame_data_qa["perception"],
+            qa_output["perception"],
+            lambda qa: all_terms_in_text(object_classes, qa["A"]),
+            TAG_IMPORTANCE,
+        )
+        add_first_matching_qa(
+            frame_data_qa["perception"],
+            qa_output["perception"],
+            lambda qa: STATUS_QUESTION_PREFIX in qa["Q"].lower(),
+            TAG_MULTIPLE_CHOICE,
+        )
+        add_first_matching_qa(
+            frame_data_qa["prediction"],
+            qa_output["prediction"],
+            lambda qa: all_terms_in_text(object_locations, qa["A"]),
+            TAG_GRAPH,
+        )
+        add_first_matching_qa(
+            frame_data_qa["prediction"],
+            qa_output["prediction"],
+            lambda qa: contains_yes_or_no(qa["A"]),
+            TAG_MULTIPLE_CHOICE,
+        )
+        append_planning_questions(frame_data_qa["planning"], qa_output["planning"])
+        qa_output["behavior"] = [
+            tagged_copy(qa, TAG_MULTIPLE_CHOICE)
+            for qa in frame_data_qa["behavior"]
+        ]
 
     return test_data
 
 
 def rule_based1(question, answer):
-    rule = ["Going ahead.", "Turn right.", "Turn left.", "Stopped.", "Back up.", "Reverse parking.", "Drive backward."]
-    rule.remove(answer)
-    choices = random.sample(rule, 3)
-    choices.append(answer)
-    random.shuffle(choices)
-    idx = choices.index(answer)
-    question += f" Please select the correct answer from the following options: A. {choices[0]} B. {choices[1]} C. {choices[2]} D. {choices[3]}"
-    mapping = {0: "A", 1: "B", 2: "C", 3: "D"}
-    return {"Q": question, "A": mapping[idx]}
+    return build_multiple_choice_qa(question, answer, MOVING_STATUS_CHOICES)
+
 
 def rule_based2(question, answer):
-    rule = ['The ego vehicle is slightly steering to the left. The ego vehicle is driving very fast.', 'The ego vehicle is steering to the left. The ego vehicle is driving with normal speed.', 'The ego vehicle is steering to the left. The ego vehicle is driving fast.', 'The ego vehicle is slightly steering to the right. The ego vehicle is driving fast.', 'The ego vehicle is going straight. The ego vehicle is driving slowly.', 'The ego vehicle is going straight. The ego vehicle is driving with normal speed.', 'The ego vehicle is slightly steering to the left. The ego vehicle is driving with normal speed.', 'The ego vehicle is slightly steering to the left. The ego vehicle is driving slowly.', 'The ego vehicle is slightly steering to the right. The ego vehicle is driving slowly.', 'The ego vehicle is slightly steering to the right. The ego vehicle is driving very fast.', 'The ego vehicle is steering to the right. The ego vehicle is driving fast.', 'The ego vehicle is steering to the right. The ego vehicle is driving very fast.', 'The ego vehicle is slightly steering to the left. The ego vehicle is driving fast.', 'The ego vehicle is steering to the left. The ego vehicle is driving very fast.', 'The ego vehicle is going straight. The ego vehicle is not moving.', 'The ego vehicle is slightly steering to the right. The ego vehicle is driving with normal speed.', 'The ego vehicle is steering to the right. The ego vehicle is driving slowly.', 'The ego vehicle is steering to the right. The ego vehicle is driving with normal speed.', 'The ego vehicle is going straight. The ego vehicle is driving very fast.', 'The ego vehicle is going straight. The ego vehicle is driving fast.', 'The ego vehicle is steering to the left. The ego vehicle is driving slowly.']
-    rule.remove(answer)
-    choices = random.sample(rule, 3)
-    choices.append(answer)
-    random.shuffle(choices)
-    idx = choices.index(answer)
-    question += f" Please select the correct answer from the following options: A. {choices[0]} B. {choices[1]} C. {choices[2]} D. {choices[3]}"
-    mapping = {0: "A", 1: "B", 2: "C", 3: "D"}
-    return {"Q": question, "A": mapping[idx]}
-    
+    return build_multiple_choice_qa(question, answer, EGO_VEHICLE_BEHAVIOR_CHOICES)
+
 
 def loop_test(test_file):
+    for scene_id, frame_id, frame_data in iter_key_frames(test_file):
+        frame_data_qa = frame_data["QA"]
+        frame_entry = build_frame_entry(frame_data["image_paths"])
 
+        frame_entry["QA"]["prediction"] = [dict(qa) for qa in frame_data_qa["prediction"]]
+        frame_entry["QA"]["planning"] = [dict(qa) for qa in frame_data_qa["planning"]]
 
-    for scene_id in test_file.keys():
-        scene_data = test_file[scene_id]['key_frames']
+        for qa in frame_data_qa["perception"]:
+            if STATUS_QUESTION_PREFIX in qa["Q"].lower():
+                frame_entry["QA"]["perception"].append(
+                    {
+                        **qa,
+                        **rule_based1(qa["Q"], qa["A"]),
+                    }
+                )
+                continue
 
-        for frame_id in scene_data.keys():
-            # frame_data_infos = scene_data[frame_id]['key_object_infos']
-            frame_data_qa = scene_data[frame_id]['QA']
-            image_paths = scene_data[frame_id]['image_paths']
+            frame_entry["QA"]["perception"].append(dict(qa))
 
-            test_file[scene_id]['key_frames'][frame_id] = dict()
-            # test_file[scene_id]['key_frames'][frame_id]['key_object_infos'] = frame_data_infos
-            test_file[scene_id]['key_frames'][frame_id]['QA'] = dict()
-            test_file[scene_id]['key_frames'][frame_id]['QA']['perception'] = []
-            # add all prediction and planning
-            test_file[scene_id]['key_frames'][frame_id]['QA']['prediction'] = frame_data_qa["prediction"]
-            test_file[scene_id]['key_frames'][frame_id]['QA']['planning'] = frame_data_qa["planning"]
+        for qa in frame_data_qa["behavior"]:
+            frame_entry["QA"]["behavior"].append(
+                {
+                    **qa,
+                    **rule_based2(qa["Q"], qa["A"]),
+                }
+            )
 
-            test_file[scene_id]['key_frames'][frame_id]['QA']['behavior'] = []
-            test_file[scene_id]['key_frames'][frame_id]['image_paths'] = image_paths
-
-            for qa in frame_data_qa["perception"]:
-                question = qa['Q']
-                answer = qa['A']
-                if "What is the moving status of object".lower() in question.lower():
-                    qa.update(rule_based1(question, answer))
-                    test_file[scene_id]['key_frames'][frame_id]['QA']['perception'].append(qa)
-                else:
-                    test_file[scene_id]['key_frames'][frame_id]['QA']['perception'].append(qa)
-
-            for qa in frame_data_qa["behavior"]:
-                question = qa['Q']
-                answer = qa['A']
-                qa.update(rule_based2(question, answer))
-                test_file[scene_id]['key_frames'][frame_id]['QA']['behavior'].append(qa)
+        test_file[scene_id]["key_frames"][frame_id] = frame_entry
 
     return test_file
 
-def split_by_key_frame(test_file, train_ratio=0.8, seed=42): 
+
+def normalize_image_paths(image_paths):
+    return [
+        image_path.replace("..", "data/DriveLM_nuScenes")
+        for image_path in image_paths.values()
+    ]
+
+
+def split_by_key_frame(test_file, train_ratio=0.8, seed=42):
     frame_datas = []
-    for scene_id in test_file.keys():
-        scene_data = test_file[scene_id]['key_frames']
 
-        for frame_id in scene_data.keys():
-            image_paths = scene_data[frame_id]['image_paths']
-            image_paths = [image_paths[key].replace("..", "data/DriveLM_nuScenes") for key in image_paths.keys()]
+    for scene_id, frame_id, frame_data in iter_key_frames(test_file):
+        frame_entry = copy.deepcopy(frame_data)
+        frame_entry["image_paths"] = normalize_image_paths(frame_data["image_paths"])
+        frame_entry["scene_id"] = scene_id
+        frame_entry["frame_id"] = frame_id
+        frame_datas.append(frame_entry)
 
-            frame_data = scene_data[frame_id]
-            frame_data['image_paths'] = image_paths
-            frame_data.update({'scene_id': scene_id, 'frame_id': frame_id})
-            frame_datas.append(frame_data)
-    # 根据给定随机种子打乱所有关键帧数据
-    random.seed(seed)
-    random.shuffle(frame_datas)
-    # 根据 train_ratio 计算划分索引
+    rng = random.Random(seed)
+    rng.shuffle(frame_datas)
+
     split_idx = int(len(frame_datas) * train_ratio)
     train_frames = frame_datas[:split_idx]
     val_frames = frame_datas[split_idx:]
@@ -225,29 +263,23 @@ def split_by_key_frame(test_file, train_ratio=0.8, seed=42):
 def convert2vlm(test_file):
     output = []
     for frame_data in test_file:
+        frame_data_qa = frame_data["QA"]
+        qa_pairs = (
+            frame_data_qa["perception"]
+            + frame_data_qa["prediction"]
+            + frame_data_qa["planning"]
+            + frame_data_qa["behavior"]
+        )
 
-        image_paths = frame_data['image_paths']
-
-        frame_data_qa = frame_data['QA']
-        QA_pairs = frame_data_qa["perception"] + frame_data_qa["prediction"] + frame_data_qa["planning"] + frame_data_qa["behavior"]
-        
-        for idx, qa in enumerate(QA_pairs):
-            question = qa['Q']
-            answer = qa['A']
+        for idx, qa in enumerate(qa_pairs):
             output.append(
                 {
-                    "id": frame_data['scene_id'] + "_" + frame_data['frame_id'] + "_" + str(idx),
-                    "image": image_paths,
+                    "id": f"{frame_data['scene_id']}_{frame_data['frame_id']}_{idx}",
+                    "image": frame_data["image_paths"],
                     "conversations": [
-                        {
-                            "from": "human",
-                            "value": question
-                        },
-                        {
-                            "from": "gpt",
-                            "value": answer
-                        },
-                    ]
+                        {"from": "human", "value": qa["Q"]},
+                        {"from": "gpt", "value": qa["A"]},
+                    ],
                 }
             )
 
@@ -255,93 +287,100 @@ def convert2vlm(test_file):
 
 
 def convert_to_hf_dataset(json_data):
-    """Convert JSON data to Hugging Face Dataset format."""
-    hf_data = []
-    for item in json_data:
-        hf_data.append({
+    hf_data = [
+        {
             "id": item["id"],
             "image_paths": item["image"],
             "conversations": item["conversations"],
-        })
+        }
+        for item in json_data
+    ]
     return Dataset.from_list(hf_data)
 
 
-# 坐标变换函数
 def rescale_coords(x, y, orig_size=(1600, 900), target_size=(224, 224)):
     new_x = x / orig_size[0] * target_size[0]
     new_y = y / orig_size[1] * target_size[1]
     return round(new_x, 2), round(new_y, 2)
 
-# 替换字符串中形如 <c1,CAM_FRONT_RIGHT,1116.7,432.5> 的坐标
-def replace_coords_in_text(text):
-    pattern = r"<([^,]+),([^,]+),([0-9.]+),([0-9.]+)>"
-    
+
+def replace_coords_in_text(text, target_size=(224, 224)):
     def repl(match):
         name, cam, x, y = match.groups()
-        x_new, y_new = rescale_coords(float(x), float(y))
+        x_new, y_new = rescale_coords(float(x), float(y), target_size=target_size)
         return f"<{name},{cam},{x_new},{y_new}>"
-    
-    return re.sub(pattern, repl, text)
+
+    return COORD_PATTERN.sub(repl, text)
 
 
-# 主处理函数
-def convert_coors_system(data):
+def convert_coors_system(data, target_size=(224, 224)):
     for item in data:
-        qa = item.get("QA", {})
-        for _, qa_list in qa.items():
+        for qa_list in item.get("QA", {}).values():
             for qa_item in qa_list:
-                if "Q" in qa_item and isinstance(qa_item["Q"], str):
-                    qa_item["Q"] = replace_coords_in_text(qa_item["Q"])
-                if "A" in qa_item and isinstance(qa_item["A"], str):
-                    qa_item["A"] = replace_coords_in_text(qa_item["A"])
+                if isinstance(qa_item.get("Q"), str):
+                    qa_item["Q"] = replace_coords_in_text(
+                        qa_item["Q"],
+                        target_size=target_size,
+                    )
+                if isinstance(qa_item.get("A"), str):
+                    qa_item["A"] = replace_coords_in_text(
+                        qa_item["A"],
+                        target_size=target_size,
+                    )
     return data
 
+
 def create_drivelm_nus(args):
-    # extract the data from the training json file
     test_data = extract_data(args.src)
-
-    # convert data: transform the obtained test.json data into the required test format
     rule_data = loop_test(test_data)
-
-    # convert data into llama-adapter format
     train_frames, val_frames = split_by_key_frame(rule_data)
 
-    # convert pixel valua coordinates system
-    train_frames = convert_coors_system(train_frames)
-    val_frames = convert_coors_system(val_frames)
+    target_size = (args.resize_tgt, args.resize_tgt)
+    train_frames = convert_coors_system(train_frames, target_size=target_size)
+    val_frames = convert_coors_system(val_frames, target_size=target_size)
 
-    # 将转换后的数据保存到文件中
-    os.makedirs("datasets/DriveLM_nuScenes/refs/",exist_ok=True)
-    
-    with open("datasets/DriveLM_nuScenes/refs/train_cot.json", "w", encoding="utf-8") as f:
-        json.dump(train_frames, f, ensure_ascii=False, indent=2)
+    os.makedirs(REFS_DIR, exist_ok=True)
+    save_json(os.path.join(REFS_DIR, "train_cot.json"), train_frames)
+    save_json(os.path.join(REFS_DIR, "val_cot.json"), val_frames)
 
-    with open("datasets/DriveLM_nuScenes/refs/val_cot.json", "w", encoding="utf-8") as f:
-        json.dump(val_frames, f, ensure_ascii=False, indent=2)
-
-    # convert to HF Dataset style
     output_train = convert2vlm(train_frames)
     output_val = convert2vlm(val_frames)
-    with open("datasets/DriveLM_nuScenes/refs/val_qa_style.json", "w", encoding="utf-8") as f:
-        json.dump(output_val, f, ensure_ascii=False, indent=2)
+    save_json(os.path.join(REFS_DIR, "val_qa_style.json"), output_val)
 
-    # convert to HF style
     train_dataset = convert_to_hf_dataset(output_train)
     val_dataset = convert_to_hf_dataset(output_val)
-
-    # Save train and validation datasets separately
-    train_dataset.save_to_disk(args.train_data) 
-    val_dataset.save_to_disk(args.val_data)       
+    train_dataset.save_to_disk(args.train_data)
+    val_dataset.save_to_disk(args.val_data)
     print("finished...")
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("src", type=str, default=None, help='the json file download from DriveLM-nuScenes repo website')
-    parser.add_argument("--resize_tgt", type=str, default=224, help='the pixel coordinate system to be transformed to')
-    parser.add_argument("--train_data", type=str, default='datasets/DriveLM_nuScenes/split/train/', help='the huggingface Dataset style data')
-    parser.add_argument("--val_data", type=str, default='datasets/DriveLM_nuScenes/split/val/', help='the huggingface Dataset style data')
-    args = parser.parse_args()
-    return args
+    parser.add_argument(
+        "src",
+        type=str,
+        default=None,
+        help="the json file download from DriveLM-nuScenes repo website",
+    )
+    parser.add_argument(
+        "--resize_tgt",
+        type=int,
+        default=224,
+        help="the pixel coordinate system to be transformed to",
+    )
+    parser.add_argument(
+        "--train_data",
+        type=str,
+        default="datasets/DriveLM_nuScenes/split/train/",
+        help="the huggingface Dataset style data",
+    )
+    parser.add_argument(
+        "--val_data",
+        type=str,
+        default="datasets/DriveLM_nuScenes/split/val/",
+        help="the huggingface Dataset style data",
+    )
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
