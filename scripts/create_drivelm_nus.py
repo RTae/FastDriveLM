@@ -237,7 +237,7 @@ def loop_test(test_file):
 
 def normalize_image_paths(image_paths):
     return [
-        image_path.replace("..", "data/DriveLM_nuScenes")
+        image_path.replace("..", "datasets/DriveLM_nuScenes")
         for image_path in image_paths.values()
     ]
 
