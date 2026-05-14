@@ -26,3 +26,19 @@ bash scripts/download_drivelm_nus.sh
 ```bash
 python scripts/create_drivelm_nus.py datasets/v1_1_train_nus.json
 ```
+after run thuis script, the data will be organized as follows:
+```bash
+/data
+└── DriveLM_nuScenes
+    ├── nuscenes
+    │   └── samples
+    ├── QA_dataset_nus
+    │   └── v1_1_train_nus.json
+    ├── refs
+    │   ├── train_cot.json
+    │   ├── val_cot.json
+    │   └── val_qa_style.json
+    └── split
+         ├── train/
+         └── val/
+```
