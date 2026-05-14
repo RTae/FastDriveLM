@@ -11,7 +11,7 @@ class DriveLMNusQwen3VLConfig:
     #                        "Qwen/Qwen2.5-VL-7B-Instruct"
     #                        "Qwen/Qwen2.5-VL-72B-Instruct"
     # Qwen3-VL variants:    "Qwen/Qwen3-VL-8B-Instruct"
-    model_name: str = "Qwen/Qwen3-VL-8B-Instruct"
+    model_name: str = "/root/autodl-tmp/Qwen/Qwen3-VL-8B-Instruct"
     model_preparation: str = "prepare_model_and_processor_qwen3vl"
     collate_fn_train: str = "drivelm_nus_qwen3vl_collate_fn_train"
     collate_fn_val: Optional[str] = "drivelm_nus_qwen3vl_collate_fn_val"
