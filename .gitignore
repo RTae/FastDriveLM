@@ -2,4 +2,5 @@
 *.pyc
 *.egg-info
 datasets/*
+!datasets/.gitkeep
 __pycache__/*
