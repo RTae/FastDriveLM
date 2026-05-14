@@ -62,18 +62,22 @@ def train(args):
     # prepare model and processor 
     # set accelerate for ddp training
     mixed_precision = "bf16" if config.dtype == torch.bfloat16 else "no"
+    enable_wandb = bool(config.wandb_project)
+    tracker_project_name = config.wandb_project or "fastdrivelm"
+    loggers = ["tensorboard"] + (["wandb"] if enable_wandb else [])
+
     if config.find_unused_parameters:
         accelerator = MyAccelerator(
             gradient_accumulation_steps=config.gradient_accumulation_steps,
             mixed_precision=mixed_precision,
-            log_with=["tensorboard", "wandb"],
+            log_with=loggers,
             project_dir=config.output_dir,
         )
     else:
         accelerator = Accelerator(
             gradient_accumulation_steps=config.gradient_accumulation_steps,
             mixed_precision=mixed_precision,
-            log_with=["tensorboard", "wandb"],
+            log_with=loggers,
             project_dir=config.output_dir,
         )
 
@@ -136,11 +140,10 @@ def train(args):
     dataloader_step = 0
     grad_norm = None
 
+    init_kwargs = {"wandb": {"name": config.run_name}} if enable_wandb else {}
     accelerator.init_trackers(
-        project_name=config.wandb_project,
-        init_kwargs={
-            "wandb": {"name": config.run_name}
-        },
+        project_name=tracker_project_name,
+        init_kwargs=init_kwargs,
         config=vars(config),
     )
 
