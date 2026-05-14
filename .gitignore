@@ -4,3 +4,6 @@
 datasets/*
 !datasets/.gitkeep
 __pycache__/*
+outputs/*
+!outputs/.gitkeep
+paligemma_update.json
