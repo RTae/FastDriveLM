@@ -15,7 +15,7 @@ dependencies = [
     "soundfile==0.13.1",
     "pillow>=11.1.0",
     "scipy>=1.13.1",
-    "torchvision==0.21.0",
+    "torchvision>=0.21.0",
     "backoff==2.2.1",
     "peft==0.15.1",
     "datasets>=4.8.5",
