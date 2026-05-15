@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 @dataclass
 class DriveLMNusQwen3VLDraftConfig:
     # ── Model ─────────────────────────────────────────────────────────────────
-    model_name: str = "/root/autodl-tmp/models/Qwen3-VL-2B-Instruct"
+    model_name: str = "/root/autodl-tmp/models/Qwen/Qwen3-VL-2B-Instruct"
     model_preparation: str = "prepare_model_and_processor_qwen3vl"  
     collate_fn_train: str = "drivelm_nus_qwen3vl_collate_fn_train"   
     collate_fn_val: Optional[str] = "drivelm_nus_qwen3vl_collate_fn_val"  
