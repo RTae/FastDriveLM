@@ -2,10 +2,10 @@ import re
 import argparse
 import json
 import numpy as np
-import language_evaluation
 
-import sys
-sys.path.append(".")
+from pycocoevalcap.bleu.bleu import Bleu
+from pycocoevalcap.rouge.rouge import Rouge
+from pycocoevalcap.cider.cider import Cider
 
 
 def normalize_prediction_answer(answer):
@@ -15,11 +15,36 @@ def normalize_prediction_answer(answer):
         return ""
     return answer
 
+
+class CocoEvaluator:
+    def __init__(self):
+        self.scorers = [
+            (Bleu(4), ["Bleu_1", "Bleu_2", "Bleu_3", "Bleu_4"]),
+            (Rouge(), "ROUGE_L"),
+            (Cider(), "CIDEr"),
+        ]
+
+    def run_evaluation(self, predictions, references):
+        if len(predictions) != len(references):
+            raise ValueError("Predictions and references must have the same length.")
+
+        gts = {index: [reference] for index, reference in enumerate(references)}
+        res = {index: [prediction] for index, prediction in enumerate(predictions)}
+
+        results = {}
+        for scorer, method in self.scorers:
+            score, _ = scorer.compute_score(gts, res)
+            if isinstance(method, list):
+                for metric_name, metric_score in zip(method, score):
+                    results[metric_name] = metric_score
+            else:
+                results[method] = score
+        return results
+
+
 class evaluation_suit():
     def __init__(self):
-        self.language_eval = language_evaluation.CocoEvaluator(coco_types=["BLEU", "ROUGE_L", "CIDEr"])
-        # self.chatgpt_eval = GPTEvaluation()
-        # self.GPT = []
+        self.language_eval = CocoEvaluator()
         self.accuracy = {"answer": [], "GT": []}
         self.language = {"answer": [], "GT": []}
         self.match = {"match": {"answer": [], "GT": []}, "GPT": []}
@@ -29,33 +54,14 @@ class evaluation_suit():
         for i in range(len(self.accuracy["answer"])):
             answer = self.accuracy["answer"][i]
             GT = self.accuracy["GT"][i]
-            if answer == GT:
-                scores.append(1.0)
-            else:
-                scores.append(0.0)
-
-        scores = sum(scores) / len(scores)
-        return scores
-
-    # def eval_chatGPT(self, data):
-    #     with Pool(32) as p:  # Change the number based on your CPU cores
-    #         scores = p.map(self.chatgpt_eval.forward, data)
-
-    #     scores = list(map(float, scores))
-    #     scores = sum(scores) / len(scores)
-    #     return scores
+            scores.append(1.0 if answer == GT else 0.0)
+        return sum(scores) / len(scores) if scores else 0.0
 
     def eval_language(self):
-        """
-        return the dict evaluation results
-        """
         answer = self.language["answer"]
         GT = self.language["GT"]
         results_gen = self.language_eval.run_evaluation(answer, GT)
-        results_gen_dict = {
-            f"val/{k}": v for k, v in results_gen.items()
-        }
-        return results_gen_dict
+        return {f"val/{k}": v for k, v in results_gen.items()}
 
     def eval_match(self):
         outs1 = []
@@ -64,15 +70,12 @@ class evaluation_suit():
             GT = self.match["match"]["GT"][i]
             _, F1_score = self.match_result(answer, GT)
             outs1.append(F1_score * 100)
-        
-        outs1 = sum(outs1) / len(outs1)
-        # outs2 = self.eval_chatGPT(self.match["GPT"])
-        # scores = (outs1 + outs2) / 2.0
-        scores = outs1
-        return scores
+        return sum(outs1) / len(outs1) if outs1 else 0.0
 
     def eval_graph(self, question):
-        # check if answer in self.graph  
+        # FIX: guard against set_graph never being called
+        if not hasattr(self, 'graph'):
+            return False
         question_nums = re.findall(r'\d+\.\d+', question)
         question_nums = np.array([list(map(float, x.split()))[0] for x in question_nums]).reshape(-1, 2)
         question_nums = [list(i) for i in question_nums]
@@ -88,9 +91,10 @@ class evaluation_suit():
         """
         answer_nums = re.findall(r'\d+\.\d+', answer)
         GT_nums = re.findall(r'\d+\.\d+', GT)
-        # transform string into float
+
         if len(answer_nums) % 2 != 0:
             answer_nums = answer_nums[:-1]
+
         answer_nums = np.array([list(map(float, x.split()))[0] for x in answer_nums]).reshape(-1, 2)
         GT_nums = np.array([list(map(float, x.split()))[0] for x in GT_nums]).reshape(-1, 2)
         length = len(GT_nums)
@@ -98,7 +102,7 @@ class evaluation_suit():
         matched_out = []
         true_positives = 0
         false_positives = 0
-        false_negatives = 0
+
         for pred in answer_nums:
             closest_distance = float('inf')
             closest_gt = None
@@ -112,11 +116,11 @@ class evaluation_suit():
 
             if closest_distance < 16:
                 true_positives += 1
-                matched_out.append(closest_gt)  
-                GT_nums = np.delete(GT_nums, closest_id, axis=0) 
+                matched_out.append(closest_gt)
+                GT_nums = np.delete(GT_nums, closest_id, axis=0)
             else:
                 false_positives += 1
-            
+
         false_negatives = length - true_positives
         precision = true_positives / (true_positives + false_positives + 1e-8)
         recall = true_positives / (true_positives + false_negatives + 1e-8)
@@ -131,12 +135,13 @@ class evaluation_suit():
         self.graph = [list(i) for i in self.graph]
 
     def forward(self, tag, answer, GT):
+        # FIX: normalize answer here to handle list inputs safely
+        answer = normalize_prediction_answer(answer)
         if 0 in tag:
             self.accuracy["answer"].append(answer)
             self.accuracy["GT"].append(GT)
         if 1 in tag:
-            # self.GPT.append((answer, GT))
-            pass
+            pass  # GPT eval not implemented
         if 2 in tag:
             self.language["GT"].append(GT)
             self.language["answer"].append(answer)
@@ -145,30 +150,28 @@ class evaluation_suit():
             self.match["match"]["answer"].append(answer)
             self.match["GPT"].append((answer, GT))
 
-            
     def evaluation(self):
         print("evaluation start!")
         scores = {}
         scores["accuracy"] = self.eval_acc()
-        # scores["chatgpt"] = self.eval_chatGPT(self.GPT)
         scores["language"] = self.eval_language()
         scores["match"] = self.eval_match()
-
         return scores
 
+
 if __name__ == '__main__':
-    # get args
     parser = argparse.ArgumentParser(description='Evaluation')
     parser.add_argument('--src', type=str, default="datasets/DriveLM_nuScenes/refs/infer_results.json", help='path to prediction file')
     parser.add_argument('--tgt', type=str, default="datasets/DriveLM_nuScenes/refs/val_cot.json", help='path to test file')
     args = parser.parse_args()
-    
-    with open(args.src, 'r') as f :#, \    
+
+    with open(args.src, 'r') as f:
         pred_file = json.load(f)
     pred_file = {pred_file[i]["id"]: pred_file[i] for i in range(len(pred_file))}
-    
+
     with open(args.tgt, 'r') as f:
         test_file = json.load(f)
+
     evaluation = evaluation_suit()
     for frame_data in test_file:
         first_flag = True
@@ -178,25 +181,26 @@ if __name__ == '__main__':
             GT = qa['A']
             tag = qa['tag']
             idx = frame_data['scene_id'] + "_" + frame_data['frame_id'] + "_" + str(i)
-            # TODO 
+
             if idx not in pred_file.keys():
                 break
+
             predict = normalize_prediction_answer(pred_file[idx].get("answer"))
-            # assert pred_file[idx]["gt_answer"] == GT, print(pred_file[idx]["gt_answer"], GT)
+
             if first_flag:
                 first_flag = False
                 evaluation.set_graph(predict, GT)
                 evaluation.forward(tag, predict, GT)
             else:
                 if evaluation.eval_graph(question):
-                    res = evaluation.forward(tag, predict, GT)
+                    evaluation.forward(tag, predict, GT)
 
     output = evaluation.evaluation()
     print("accuracy score: ", output["accuracy"])
-    print("match score: ", output["match"])
+    print("match score:    ", output["match"])
     print("language score: ", output["language"])
-    
-    # Normalize to 0-1 and combine the scores: chatgpt, language, match, accuracy
+
+    # Normalize to 0-1 and combine scores
     scores = []
 
     # language
@@ -205,17 +209,17 @@ if __name__ == '__main__':
         if idx < 4:
             score += output["language"][key] / 4. / 3.
         elif idx == 4:
-            score += output["language"][key] / 3. 
+            score += output["language"][key] / 3.
         else:
             score += output["language"][key] / 10. / 3.
+    scores.append(score)
 
-    scores.append(score)
-    
     # match
-    score = output["match"] / 100.
-    scores.append(score)
+    scores.append(output["match"] / 100.)
 
     # accuracy
-    score = output["accuracy"]
-    scores.append(score)
-    print(f"score:{score}")
+    scores.append(output["accuracy"])
+
+    # FIX: print combined score instead of just accuracy
+    final_score = sum(scores) / len(scores)
+    print(f"final combined score: {final_score:.4f}")

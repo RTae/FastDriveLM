@@ -5,12 +5,7 @@
 - Install [uv](https://docs.astral.sh/uv/getting-started/installation/) for virtual environment management and dependency installation.
 
 ## Installation
-1. External dependencies for language evaluation (BLEU, ROUGE, etc.)
-```bash
-apt-get update && apt-get install -y software-properties-common openjdk-21-jdk libxml-parser-perl
-```
-
-2. Install Python dependencies and set up virtual environment
+1. Install Python dependencies and set up virtual environment
 ```bash
 uv sync
 ```
@@ -103,7 +98,7 @@ For LoRA checkpoints, `--base-model` is optional when `adapter_config.json` is p
 
 ```bash
 # Qwen2.5-VL / Qwen3-VL LoRA checkpoint
-RUN_NAME=<run_name>
+RUN_NAME=qwen3vl-2026-05-14_20-38
 python tools/inference.py \
     --adapter-path outputs/qwen3vl/$RUN_NAME/final_model \
     --data datasets/DriveLM_nuScenes/split/val \
@@ -137,17 +132,21 @@ Use the matching validation collate function for your model:
 
 Run evaluation on the JSON file produced by `tools/inference.py`.
 
+`tools/evaluation.py` now includes a built-in BLEU-1..4, ROUGE-L, and CIDEr scorer, so no extra evaluation package is required.
+
 `--src` should point to your inference output, while `--tgt` should point to the validation reference file.
 
 ```bash
 # Qwen2.5-VL / Qwen3-VL predictions
+RUN_NAME=qwen3vl-2026-05-14_20-38
 python tools/evaluation.py \
-    --src outputs/qwen3vl/<run_name>/infer_results.json \
+    --src outputs/qwen3vl/$RUN_NAME/infer_results.json \
     --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
 
 # PaliGemma predictions
+RUN_NAME=<run_name>
 python tools/evaluation.py \
-    --src outputs/paligemma/<run_name>/infer_results.json \
+    --src outputs/paligemma/$RUN_NAME/infer_results.json \
     --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
 
 # Generic form

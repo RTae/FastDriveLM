@@ -21,6 +21,10 @@ dependencies = [
     "datasets>=4.8.5",
     "wandb>=0.27.0",
     "tensorboard>=2.20.0",
+    "evaluate>=0.4.6",
+    "rouge-score>=0.1.2",
+    "nltk>=3.9.4",
+    "pycocoevalcap>=1.2",
 ]
 
 [tool.setuptools.packages.find]
