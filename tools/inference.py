@@ -117,6 +117,13 @@ def load_generation_config(model, generation_source):
         return GenerationConfig.from_model_config(model.config)
 
 
+def build_effective_generation_config(generation_config, max_new_tokens):
+    effective_config = GenerationConfig.from_dict(generation_config.to_dict())
+    if max_new_tokens is not None:
+        effective_config.max_new_tokens = max_new_tokens
+    return effective_config
+
+
 def load_model_and_processor(args):
     model_path = validate_model_path(args.model_path)
     model_dir = Path(model_path)
@@ -203,6 +210,9 @@ def load_model_and_processor(args):
 @torch.no_grad() 
 def main(args):
     model, processor, generation_config = load_model_and_processor(args)
+    effective_generation_config = build_effective_generation_config(
+        generation_config, args.max_new_tokens
+    )
 
     # prepare dataset
     collate_fn = build_collate_fn(args.collate_fn)
@@ -225,8 +235,7 @@ def main(args):
         input_len = inputs["input_ids"].shape[-1]
         output = model.generate(
             **inputs,
-            max_new_tokens=args.max_new_tokens,
-            generation_config=generation_config
+            generation_config=effective_generation_config,
         )
         output = output[:, input_len:]
         results = processor.batch_decode(output, skip_special_tokens=True)
