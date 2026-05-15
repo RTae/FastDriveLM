@@ -37,29 +37,26 @@ make create_dataset
 ```
 after running this script, the data will be organized as follows:
 ```bash
-/datasets
+    --output outputs/qwen3vl/<run_name>/infer_results.json
 └── DriveLM_nuScenes
     ├── nuscenes
     │    └── samples
     ├── QA_dataset_nus
     │    └── v1_1_train_nus.json
     ├── refs
-    │    ├── train_cot.json
+    --output outputs/paligemma/<run_name>/infer_results.json
     │    ├── val_cot.json
     │    └── val_qa_style.json
     └── split
          ├── train/
          └── val/
 ```
-
-### Run fine-tuning
+    --collate_fn <COLLATE_FN_VAL> \
+    --output <OUTPUT_JSON>
 
 Single GPU:
 ```bash
 python tools/finetune.py <CONFIG>
-```
-    --adapter-path outputs/qwen3vl/<run_name>/final_model \
-    --data datasets/DriveLM_nuScenes/split/val \
     --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
     --output outputs/qwen3vl/<run_name>/infer_results.json
 
@@ -101,24 +98,39 @@ model_name: str = "Qwen/Qwen3-VL-8B-Instruct"   # default
 
 ### Run inference
 
+If you do not activate the virtual environment first, replace `python` with `.venv/bin/python`.
+
+For LoRA checkpoints, `--base-model` is optional when `adapter_config.json` is present in `final_model`; the script will read the base model path from that file automatically.
+
 ```bash
-# LoRA / PEFT fine-tuned checkpoint
+# Qwen2.5-VL / Qwen3-VL LoRA checkpoint
 python tools/inference.py \
     --adapter-path outputs/qwen3vl/<run_name>/final_model \
     --data datasets/DriveLM_nuScenes/split/val \
     --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
-    --output datasets/DriveLM_nuScenes/refs/infer_results.json
+    --output outputs/qwen3vl/<run_name>/infer_results.json
+
+# PaliGemma LoRA checkpoint
+python tools/inference.py \
+    --adapter-path outputs/paligemma/<run_name>/final_model \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --collate_fn drivelm_nus_paligemma_collate_fn_val \
+    --output outputs/paligemma/<run_name>/infer_results.json
 
 # Full model checkpoint directory
 python tools/inference.py \
     --model-path <MODEL_DIR> \
     --processor-path <BASE_MODEL_OR_PROCESSOR_DIR> \
     --data datasets/DriveLM_nuScenes/split/val \
-    --collate_fn drivelm_nus_paligemma_collate_fn_val \
-    --output datasets/DriveLM_nuScenes/refs/infer_results.json
+    --collate_fn <COLLATE_FN_VAL> \
+    --output <OUTPUT_JSON>
 ```
 
-For LoRA checkpoints, `--base-model` is optional when `adapter_config.json` is present in `final_model`; the script will read the base model path from that file automatically.
+Use the matching validation collate function for your model:
+
+- `drivelm_nus_paligemma_collate_fn_val`
+- `drivelm_nus_qwen3vl_collate_fn_val`
+- `drivelm_nus_phi4_collate_fn_val`
 
 ### Evaluate
 
