@@ -100,7 +100,7 @@ Use `--model-path` as the single model directory argument.
 - checkpoint-only full weights directory (`pytorch_model.bin`/`model.safetensors` with `--base-model`)
 - LoRA adapter directory (`adapter_config.json` + adapter weights)
 
-For adapter and checkpoint-only directories, `--base-model` is optional when base model metadata exists in `adapter_config.json` (or README front matter); otherwise provide `--base-model` explicitly.
+For adapter and checkpoint-only directories, a base model is required. The script reads it from `adapter_config.json` when available, or you can pass `--base-model` explicitly.
 
 Also, use the matching validation collate function for your model:
 

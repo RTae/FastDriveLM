@@ -6,9 +6,11 @@ import json
 
 import torch
 from datasets import load_from_disk
+from peft import PeftModel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import (
+    AutoConfig,
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
     AutoProcessor,
@@ -64,6 +66,19 @@ def can_load_full_model_from_dir(path: Path) -> bool:
     return (path / "config.json").exists() and has_full_model_weights(path)
 
 
+def resolve_base_model(args, model_dir: Path):
+    if args.base_model:
+        return args.base_model
+
+    adapter_config_path = model_dir / "adapter_config.json"
+    if adapter_config_path.exists():
+        with adapter_config_path.open("r", encoding="utf-8") as f:
+            adapter_config = json.load(f)
+        return adapter_config.get("base_model_name_or_path")
+
+    return None
+
+
 def resolve_model_class(args, model_reference):
     if args.model_class != "auto":
         return args.model_class
@@ -105,31 +120,44 @@ def load_generation_config(model, generation_source):
 def load_model_and_processor(args):
     model_path = validate_model_path(args.model_path)
     model_dir = Path(model_path)
+    use_adapter_merge = False
+    use_checkpoint_with_base_config = False
+    base_model = None
 
     if can_load_full_model_from_dir(model_dir):
         model_reference = model_path
-    elif has_full_model_weights(model_dir) and not (model_dir / "config.json").exists():
-        raise ValueError(
-            "Local-only mode requires config.json in --model-path when loading full weights. "
-            "Please place config.json in the same directory as pytorch_model.bin/model.safetensors. "
-            f"Checked: {model_dir}"
-        )
+    elif has_full_model_weights(model_dir):
+        base_model = resolve_base_model(args, model_dir)
+        if base_model:
+            model_reference = model_path
+            use_checkpoint_with_base_config = True
+        else:
+            raise ValueError(
+                "Found full model weights but missing config.json. "
+                "Please provide --base-model for local config loading. "
+                f"Checked: {model_dir}"
+            )
     elif has_adapter_artifacts(model_dir):
-        raise ValueError(
-            "Detected adapter-only artifacts in --model-path. Local single-path loading cannot merge LoRA adapters "
-            "without an external base model. Use a merged/full model directory instead (config.json + model weights + processor files). "
-            f"Checked: {model_dir}"
-        )
+        base_model = resolve_base_model(args, model_dir)
+        if not base_model:
+            raise ValueError(
+                "Detected adapter artifacts but base model is missing. "
+                "Provide --base-model or set base_model_name_or_path in adapter_config.json. "
+                f"Checked: {model_dir}"
+            )
+        model_reference = base_model
+        use_adapter_merge = True
     else:
         raise ValueError(
             "Unsupported model directory. Expected one of: "
-            "(1) full model files (config.json + model weights), or "
-            "(2) adapter files if you plan to merge outside this script. "
+            "(1) full model files (config.json + model weights), "
+            "(2) checkpoint-only full weights with --base-model, or "
+            "(3) adapter files with --base-model or adapter_config.json. "
             f"Checked: {model_dir}"
         )
 
-    processor_path = args.processor_path or model_reference
-    generation_source = args.generation_config_path or model_reference
+    processor_path = args.processor_path or base_model or model_reference
+    generation_source = args.generation_config_path or base_model or model_reference
     model_class = resolve_model_class(args, model_reference)
     trust_remote_code = resolve_trust_remote_code(args, model_reference)
     torch_dtype = TORCH_DTYPES[args.dtype]
@@ -151,7 +179,18 @@ def load_model_and_processor(args):
     if torch_dtype is not None:
         model_kwargs["torch_dtype"] = torch_dtype
 
+    if use_checkpoint_with_base_config:
+        config_kwargs = {"local_files_only": True}
+        if trust_remote_code:
+            config_kwargs["trust_remote_code"] = True
+        model_kwargs["config"] = AutoConfig.from_pretrained(base_model, **config_kwargs)
+
     model = model_loader.from_pretrained(model_reference, **model_kwargs)
+
+    if use_adapter_merge:
+        peft_kwargs = {"local_files_only": True}
+        model = PeftModel.from_pretrained(model, model_path, **peft_kwargs)
+        model = model.merge_and_unload()
 
     model.to(args.device)
     model.eval()
@@ -217,9 +256,13 @@ def parse_args():
     parser.add_argument("--output", type=str, default="datasets/DriveLM_nuScenes/refs/infer_results.json")
     parser.add_argument("--model-path", type=str, required=True,
                         help=(
-                            "Single local model directory path. Must contain full model artifacts: "
-                            "config.json + model weights (+ processor files)."
+                            "Single local model directory path. Supports: "
+                            "(1) full model dir (config.json + weights), "
+                            "(2) checkpoint-only full weights dir (with --base-model), or "
+                            "(3) LoRA adapter dir (with --base-model or adapter_config.json)."
                         ))
+    parser.add_argument("--base-model", type=str, default=None,
+                        help="Base model local path or cached model id. Required for adapter/checkpoint-only directories if not set in adapter_config.json.")
     parser.add_argument("--processor-path", type=str, default=None,
                         help="Optional local processor/tokenizer directory. Defaults to --model-path.")
     parser.add_argument("--generation-config-path", type=str, default=None,
