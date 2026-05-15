@@ -1,12 +1,11 @@
 import argparse
 import inspect
-import json
 from functools import partial
 from pathlib import Path
+import json
 
 import torch
 from datasets import load_from_disk
-from peft import PeftModel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import (
@@ -27,52 +26,42 @@ TORCH_DTYPES = {
 }
 
 
-def load_json_file(path: Path):
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+def validate_model_path(model_path):
+    if not model_path:
+        raise ValueError("--model-path is required.")
 
-
-def validate_adapter_path(adapter_path):
-    if not adapter_path:
-        return None
-
-    path = Path(adapter_path)
+    path = Path(model_path)
     if not path.exists():
-        raise FileNotFoundError(f"Adapter path does not exist: {path}")
+        raise FileNotFoundError(f"Model path does not exist: {path}")
     if not path.is_dir():
-        raise NotADirectoryError(f"Adapter path is not a directory: {path}")
-
-    adapter_config = path / "adapter_config.json"
-    if not adapter_config.exists():
-        raise FileNotFoundError(f"Missing file: {adapter_config}")
-
-    has_weights = (path / "adapter_model.safetensors").exists() or any(
-        path.glob("adapter_model*.bin")
-    )
-    if not has_weights:
-        raise FileNotFoundError(
-            "Missing adapter weights in directory. "
-            "Expected adapter_model.safetensors or adapter_model*.bin"
-        )
+        raise NotADirectoryError(f"Model path is not a directory: {path}")
 
     return str(path)
 
 
-def resolve_paths(args):
-    return args.model_path, validate_adapter_path(args.adapter_path)
+def has_adapter_artifacts(path: Path) -> bool:
+    adapter_config = path / "adapter_config.json"
+    if not adapter_config.exists():
+        return False
+
+    has_weights = (path / "adapter_model.safetensors").exists() or any(
+        path.glob("adapter_model*.bin")
+    )
+    return has_weights
 
 
-def resolve_base_model(args, adapter_path=None):
-    if args.base_model:
-        return args.base_model
+def has_full_model_weights(path: Path) -> bool:
+    return (
+        (path / "model.safetensors").exists()
+        or (path / "pytorch_model.bin").exists()
+        or (path / "model.safetensors.index.json").exists()
+        or (path / "pytorch_model.bin.index.json").exists()
+    )
 
-    if not adapter_path:
-        return None
 
-    adapter_config_path = Path(adapter_path) / "adapter_config.json"
-    adapter_config = load_json_file(adapter_config_path)
-
-    return adapter_config.get("base_model_name_or_path")
+def can_load_full_model_from_dir(path: Path) -> bool:
+    # Full-model loading requires at least config + model weights in the same directory.
+    return (path / "config.json").exists() and has_full_model_weights(path)
 
 
 def resolve_model_class(args, model_reference):
@@ -108,33 +97,44 @@ def build_validation_collate_fn(collate_fn, processor, device, dtype):
 
 def load_generation_config(model, generation_source):
     try:
-        return GenerationConfig.from_pretrained(generation_source)
+        return GenerationConfig.from_pretrained(generation_source, local_files_only=True)
     except OSError:
         return GenerationConfig.from_model_config(model.config)
 
 
 def load_model_and_processor(args):
-    model_path, adapter_path = resolve_paths(args)
-    base_model = resolve_base_model(args, adapter_path=adapter_path)
-    model_reference = model_path or base_model
-    if model_reference is None:
-        checked_path = None
-        if adapter_path:
-            checked_path = Path(adapter_path) / "adapter_config.json"
+    model_path = validate_model_path(args.model_path)
+    model_dir = Path(model_path)
+
+    if can_load_full_model_from_dir(model_dir):
+        model_reference = model_path
+    elif has_full_model_weights(model_dir) and not (model_dir / "config.json").exists():
         raise ValueError(
-            "Provide --model-path, or pass --adapter-path with required adapter files, "
-            "or set --base-model explicitly. "
-            f"Checked: {checked_path}. If you are using a shell variable like RUN_NAME, "
-            "assign it before running python."
+            "Local-only mode requires config.json in --model-path when loading full weights. "
+            "Please place config.json in the same directory as pytorch_model.bin/model.safetensors. "
+            f"Checked: {model_dir}"
+        )
+    elif has_adapter_artifacts(model_dir):
+        raise ValueError(
+            "Detected adapter-only artifacts in --model-path. Local single-path loading cannot merge LoRA adapters "
+            "without an external base model. Use a merged/full model directory instead (config.json + model weights + processor files). "
+            f"Checked: {model_dir}"
+        )
+    else:
+        raise ValueError(
+            "Unsupported model directory. Expected one of: "
+            "(1) full model files (config.json + model weights), or "
+            "(2) adapter files if you plan to merge outside this script. "
+            f"Checked: {model_dir}"
         )
 
-    processor_path = args.processor_path or base_model or model_reference
-    generation_source = args.generation_config_path or base_model or model_reference
+    processor_path = args.processor_path or model_reference
+    generation_source = args.generation_config_path or model_reference
     model_class = resolve_model_class(args, model_reference)
     trust_remote_code = resolve_trust_remote_code(args, model_reference)
     torch_dtype = TORCH_DTYPES[args.dtype]
 
-    processor_kwargs = {}
+    processor_kwargs = {"local_files_only": True}
     if trust_remote_code:
         processor_kwargs["trust_remote_code"] = True
     processor = AutoProcessor.from_pretrained(processor_path, **processor_kwargs)
@@ -145,15 +145,13 @@ def load_model_and_processor(args):
         else AutoModelForImageTextToText
     )
     model_kwargs = {}
+    model_kwargs["local_files_only"] = True
     if trust_remote_code:
         model_kwargs["trust_remote_code"] = True
     if torch_dtype is not None:
         model_kwargs["torch_dtype"] = torch_dtype
-    model = model_loader.from_pretrained(model_reference, **model_kwargs)
 
-    if adapter_path:
-        model = PeftModel.from_pretrained(model, adapter_path)
-        model = model.merge_and_unload()
+    model = model_loader.from_pretrained(model_reference, **model_kwargs)
 
     model.to(args.device)
     model.eval()
@@ -217,20 +215,15 @@ def parse_args():
     parser.add_argument("--data", type=str, default="datasets/DriveLM_nuScenes/split/val")
     parser.add_argument("--collate_fn", type=str, default="drivelm_nus_paligemma_collate_fn_val")
     parser.add_argument("--output", type=str, default="datasets/DriveLM_nuScenes/refs/infer_results.json")
-    parser.add_argument("--model-path", type=str, default=None,
-                        help="Path to a full fine-tuned model directory.")
-    parser.add_argument("--base-model", type=str, default=None,
-                        help="Base model name or path. Optional when --adapter-path contains adapter_config.json.")
-    parser.add_argument("--adapter-path", type=str, default=None,
+    parser.add_argument("--model-path", type=str, required=True,
                         help=(
-                            "Path to a LoRA/PEFT adapter directory. The directory must contain "
-                            "adapter_config.json and adapter weights "
-                            "(adapter_model.safetensors or adapter_model*.bin)."
+                            "Single local model directory path. Must contain full model artifacts: "
+                            "config.json + model weights (+ processor files)."
                         ))
     parser.add_argument("--processor-path", type=str, default=None,
-                        help="Processor/tokenizer source. Defaults to the base model.")
+                        help="Optional local processor/tokenizer directory. Defaults to --model-path.")
     parser.add_argument("--generation-config-path", type=str, default=None,
-                        help="GenerationConfig source. Defaults to the base model or model path.")
+                        help="Optional local GenerationConfig directory. Defaults to --model-path.")
     parser.add_argument("--model-class", choices=["auto", "image-text-to-text", "causal-lm"], default="auto",
                         help="Model loader to use. Leave as auto for repo defaults.")
     parser.add_argument("--dtype", choices=sorted(TORCH_DTYPES.keys()), default="auto",

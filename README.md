@@ -92,16 +92,15 @@ model_name: str = "Qwen/Qwen3-VL-8B-Instruct"   # default
 
 ### Run inference
 
-For LoRA checkpoints, `--base-model` is optional when `adapter_config.json` is present in the adapter folder; the script will read the base model path from that file automatically.
+Use `--model-path` as the single model directory argument.
 
-`--adapter-path` supports:
+`--model-path` supports:
 
-- a direct adapter folder (for example `outputs/.../epoch-3` or `outputs/.../final_model`)
+- full model directory (`config.json` + model weights)
+- checkpoint-only full weights directory (`pytorch_model.bin`/`model.safetensors` with `--base-model`)
+- LoRA adapter directory (`adapter_config.json` + adapter weights)
 
-The directory passed to `--adapter-path` must include:
-
-- `adapter_config.json`
-- adapter weights (`adapter_model.safetensors` or `adapter_model*.bin`)
+For adapter and checkpoint-only directories, `--base-model` is optional when base model metadata exists in `adapter_config.json` (or README front matter); otherwise provide `--base-model` explicitly.
 
 Also, use the matching validation collate function for your model:
 
@@ -110,22 +109,14 @@ Also, use the matching validation collate function for your model:
 - `drivelm_nus_phi4_collate_fn_val`
 
 ```bash
-# Qwen2.5-VL / Qwen3-VL LoRA final_model folder (direct path)
-ADAPTER_DIR=outputs/qwen3vl/qwen3vl-2026-05-14_20-38/final_model
+# Qwen2.5-VL / Qwen3-VL LoRA epoch checkpoint (direct path)
+OUTPUT_MODEL=outputs/qwen3vl/epoch-3
 COLLATE_FN=drivelm_nus_qwen3vl_collate_fn_val
 python tools/inference.py \
-    --adapter-path $ADAPTER_DIR \
+    --model-path $OUTPUT_MODEL \
     --collate_fn $COLLATE_FN \
     --data datasets/DriveLM_nuScenes/split/val \
-    --output $ADAPTER_DIR/infer_results.json
-
-# Qwen2.5-VL / Qwen3-VL LoRA epoch checkpoint (direct path)
-EPOCH_DIR=outputs/qwen3vl/epoch-3
-python tools/inference.py \
-    --adapter-path $EPOCH_DIR \
-    --collate_fn $COLLATE_FN \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output $EPOCH_DIR/infer_results.json
+    --output $OUTPUT_MODEL/infer_results.json
 ```
 
 ### Evaluate
@@ -139,8 +130,8 @@ Run evaluation on the JSON file produced by `tools/inference.py`.
 ```bash
 # Qwen2.5-VL / Qwen3-VL predictions
 RUN_NAME=qwen3vl-2026-05-14_20-38
-ADAPTER_DIR=outputs/qwen3vl/$RUN_NAME/final_model
+OUTPUT_MODEL=outputs/qwen3vl/$RUN_NAME/final_model
 python tools/evaluation.py \
-    --src $ADAPTER_DIR/infer_results.json \
+    --src $OUTPUT_MODEL/infer_results.json \
     --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
 ```
