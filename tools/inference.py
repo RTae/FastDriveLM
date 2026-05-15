@@ -124,7 +124,19 @@ def load_model_and_processor(args):
     use_checkpoint_with_base_config = False
     base_model = None
 
-    if can_load_full_model_from_dir(model_dir):
+    # Prefer adapter merge when adapter artifacts are present, even if full weights
+    # also exist in the same folder (common for training checkpoints).
+    if has_adapter_artifacts(model_dir):
+        base_model = resolve_base_model(args, model_dir)
+        if not base_model:
+            raise ValueError(
+                "Detected adapter artifacts but base model is missing. "
+                "Provide --base-model or set base_model_name_or_path in adapter_config.json. "
+                f"Checked: {model_dir}"
+            )
+        model_reference = base_model
+        use_adapter_merge = True
+    elif can_load_full_model_from_dir(model_dir):
         model_reference = model_path
     elif has_full_model_weights(model_dir):
         base_model = resolve_base_model(args, model_dir)
@@ -137,16 +149,6 @@ def load_model_and_processor(args):
                 "Please provide --base-model for local config loading. "
                 f"Checked: {model_dir}"
             )
-    elif has_adapter_artifacts(model_dir):
-        base_model = resolve_base_model(args, model_dir)
-        if not base_model:
-            raise ValueError(
-                "Detected adapter artifacts but base model is missing. "
-                "Provide --base-model or set base_model_name_or_path in adapter_config.json. "
-                f"Checked: {model_dir}"
-            )
-        model_reference = base_model
-        use_adapter_merge = True
     else:
         raise ValueError(
             "Unsupported model directory. Expected one of: "

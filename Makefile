@@ -23,3 +23,13 @@ fine_tune_qwen3vl:
 		tools/finetune.py \
 		--log_path qwen3vl.json \
 		configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py
+
+fine_tune_qwen3vl_draft:
+	HF_ENDPOINT=$(HF_ENDPOINT) accelerate launch \
+		--num_processes=$(NUMBER_OF_GPUS) \
+		--num_machines=$(NUM_MACHINES) \
+		--mixed_precision=$(MIXED_PRECISION) \
+		--dynamo_backend=$(DYNAMO_BACKEND) \
+		tools/finetune.py \
+		--log_path qwen3vl.json \
+		configs/qwen3/qwen3vl_drivelm-draft_1xb1-lora_config.py
