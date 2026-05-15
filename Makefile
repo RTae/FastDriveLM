@@ -14,7 +14,7 @@ NUMBER_OF_GPUS := 2
 NUM_MACHINES := 1
 MIXED_PRECISION := bf16
 DYNAMO_BACKEND := no
-fine_tune_qwen3vl: download_model
+fine_tune_qwen3vl:
 	HF_ENDPOINT=$(HF_ENDPOINT) accelerate launch \
 		--num_processes=$(NUMBER_OF_GPUS) \
 		--num_machines=$(NUM_MACHINES) \
