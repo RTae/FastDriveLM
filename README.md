@@ -104,18 +104,18 @@ For LoRA checkpoints, `--base-model` is optional when `adapter_config.json` is p
 
 ```bash
 # Qwen2.5-VL / Qwen3-VL LoRA checkpoint
-python tools/inference.py \
-    --adapter-path outputs/qwen3vl/<run_name>/final_model \
+RUN_NAME=<run_name> python tools/inference.py \
+    --adapter-path outputs/qwen3vl/$RUN_NAME/final_model \
     --data datasets/DriveLM_nuScenes/split/val \
     --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
-    --output outputs/qwen3vl/<run_name>/infer_results.json
+    --output outputs/qwen3vl/$RUN_NAME/infer_results.json
 
 # PaliGemma LoRA checkpoint
-python tools/inference.py \
-    --adapter-path outputs/paligemma/<run_name>/final_model \
+RUN_NAME=<run_name> python tools/inference.py \
+    --adapter-path outputs/paligemma/$RUN_NAME/final_model \
     --data datasets/DriveLM_nuScenes/split/val \
     --collate_fn drivelm_nus_paligemma_collate_fn_val \
-    --output outputs/paligemma/<run_name>/infer_results.json
+    --output outputs/paligemma/$RUN_NAME/infer_results.json
 
 # Full model checkpoint directory
 python tools/inference.py \
