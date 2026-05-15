@@ -2,12 +2,18 @@ import re
 import argparse
 import json
 import numpy as np
-import torch.nn as nn
 import language_evaluation
-from multiprocessing import Pool
 
 import sys
 sys.path.append(".")
+
+
+def normalize_prediction_answer(answer):
+    if isinstance(answer, list):
+        return answer[0] if answer else ""
+    if answer is None:
+        return ""
+    return answer
 
 class evaluation_suit():
     def __init__(self):
@@ -153,8 +159,8 @@ class evaluation_suit():
 if __name__ == '__main__':
     # get args
     parser = argparse.ArgumentParser(description='Evaluation')
-    parser.add_argument('--src', type=str, default="data/DriveLM_nuScenes/refs/infer_results.json", help='path to prediction file')
-    parser.add_argument('--tgt', type=str, default="data/DriveLM_nuScenes/refs/val_cot.json", help='path to test file')
+    parser.add_argument('--src', type=str, default="datasets/DriveLM_nuScenes/refs/infer_results.json", help='path to prediction file')
+    parser.add_argument('--tgt', type=str, default="datasets/DriveLM_nuScenes/refs/val_cot.json", help='path to test file')
     args = parser.parse_args()
     
     with open(args.src, 'r') as f :#, \    
@@ -175,7 +181,7 @@ if __name__ == '__main__':
             # TODO 
             if idx not in pred_file.keys():
                 break
-            predict = pred_file[idx]["answer"][0]
+            predict = normalize_prediction_answer(pred_file[idx].get("answer"))
             # assert pred_file[idx]["gt_answer"] == GT, print(pred_file[idx]["gt_answer"], GT)
             if first_flag:
                 first_flag = False

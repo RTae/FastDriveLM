@@ -134,8 +134,25 @@ Use the matching validation collate function for your model:
 
 ### Evaluate
 
+Run evaluation on the JSON file produced by `tools/inference.py`.
+
+`--src` should point to your inference output, while `--tgt` should point to the validation reference file.
+
 ```bash
+# Qwen2.5-VL / Qwen3-VL predictions
 python tools/evaluation.py \
-    --src datasets/DriveLM_nuScenes/refs/infer_results.json \
+    --src outputs/qwen3vl/<run_name>/infer_results.json \
+    --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
+
+# PaliGemma predictions
+python tools/evaluation.py \
+    --src outputs/paligemma/<run_name>/infer_results.json \
+    --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
+
+# Generic form
+python tools/evaluation.py \
+    --src <OUTPUT_JSON> \
     --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
 ```
+
+Note: `tools/evaluation.py` imports `language_evaluation`. Make sure that dependency is installed in your environment before running evaluation.
