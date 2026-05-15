@@ -58,15 +58,25 @@ Single GPU:
 ```bash
 python tools/finetune.py <CONFIG>
 ```
+    --adapter-path outputs/qwen3vl/<run_name>/final_model \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
+    --output outputs/qwen3vl/<run_name>/infer_results.json
 
-Multi-GPU (DDP via Accelerate):
-```bash
-accelerate launch --num_processes=<NUM_GPUS> tools/finetune.py <CONFIG>
+# PaliGemma fine-tuned checkpoint
 ```
 
 Examples:
 ```bash
 # PaliGemma — single GPU
+
+# Full model checkpoint directory
+python tools/inference.py \
+    --model-path <MODEL_DIR> \
+    --processor-path <BASE_MODEL_OR_PROCESSOR_DIR> \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --collate_fn <COLLATE_FN_VAL> \
+    --output infer_results.json
 python tools/finetune.py configs/paligemma/paligemma_drivelm_config.py
 
 # Phi-4 — single GPU
@@ -76,7 +86,7 @@ python tools/finetune.py configs/phi4/phi4_drivelm_1xb1-lora_config.py
 python tools/finetune.py configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py
 
 # Qwen3-VL — 2 GPUs
-make fine_tune CONFIG=configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py NUMBER_OF_GPUS=2
+make fine_tune_qwen3vl
 ```
 
 Checkpoints and logs are saved under `outputs/<model>/<run_name>/`.
@@ -92,11 +102,23 @@ model_name: str = "Qwen/Qwen3-VL-8B-Instruct"   # default
 ### Run inference
 
 ```bash
+# LoRA / PEFT fine-tuned checkpoint
 python tools/inference.py \
+    --adapter-path outputs/qwen3vl/<run_name>/final_model \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
+    --output datasets/DriveLM_nuScenes/refs/infer_results.json
+
+# Full model checkpoint directory
+python tools/inference.py \
+    --model-path <MODEL_DIR> \
+    --processor-path <BASE_MODEL_OR_PROCESSOR_DIR> \
     --data datasets/DriveLM_nuScenes/split/val \
     --collate_fn drivelm_nus_paligemma_collate_fn_val \
     --output datasets/DriveLM_nuScenes/refs/infer_results.json
 ```
+
+For LoRA checkpoints, `--base-model` is optional when `adapter_config.json` is present in `final_model`; the script will read the base model path from that file automatically.
 
 ### Evaluate
 
