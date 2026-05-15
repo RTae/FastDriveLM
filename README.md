@@ -7,15 +7,7 @@
 ## Installation
 1. External dependencies for language evaluation (BLEU, ROUGE, etc.)
 ```bash
-apt-get update && apt-get install -y software-properties-common
-
-# Oracle Java
-sudo add-apt-repository ppa:webupd8team/java
-sudo apt update
-apt-get install oracle-java8-installer
-
-# libxml-parser-perl
-sudo apt install libxml-parser-perl
+apt-get update && apt-get install -y software-properties-common openjdk-21-jdk libxml-parser-perl
 ```
 
 2. Install Python dependencies and set up virtual environment
