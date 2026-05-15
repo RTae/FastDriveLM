@@ -97,7 +97,11 @@ For LoRA checkpoints, `--base-model` is optional when `adapter_config.json` is p
 `--adapter-path` supports:
 
 - a direct adapter folder (for example `outputs/.../epoch-3` or `outputs/.../final_model`)
-- a run output folder that contains `final_model` (for example `outputs/qwen3vl/<run_name>`)
+
+The directory passed to `--adapter-path` must include:
+
+- `adapter_config.json`
+- adapter weights (`adapter_model.safetensors` or `adapter_model*.bin`)
 
 Also, use the matching validation collate function for your model:
 
@@ -106,14 +110,14 @@ Also, use the matching validation collate function for your model:
 - `drivelm_nus_phi4_collate_fn_val`
 
 ```bash
-# Qwen2.5-VL / Qwen3-VL LoRA run folder (contains final_model)
-RUN_DIR=outputs/qwen3vl/qwen3vl-2026-05-14_20-38
+# Qwen2.5-VL / Qwen3-VL LoRA final_model folder (direct path)
+ADAPTER_DIR=outputs/qwen3vl/qwen3vl-2026-05-14_20-38/final_model
 COLLATE_FN=drivelm_nus_qwen3vl_collate_fn_val
 python tools/inference.py \
-    --adapter-path $RUN_DIR \
+    --adapter-path $ADAPTER_DIR \
     --collate_fn $COLLATE_FN \
     --data datasets/DriveLM_nuScenes/split/val \
-    --output $RUN_DIR/infer_results.json
+    --output $ADAPTER_DIR/infer_results.json
 
 # Qwen2.5-VL / Qwen3-VL LoRA epoch checkpoint (direct path)
 EPOCH_DIR=outputs/qwen3vl/epoch-3
@@ -135,18 +139,8 @@ Run evaluation on the JSON file produced by `tools/inference.py`.
 ```bash
 # Qwen2.5-VL / Qwen3-VL predictions
 RUN_NAME=qwen3vl-2026-05-14_20-38
+ADAPTER_DIR=outputs/qwen3vl/$RUN_NAME/final_model
 python tools/evaluation.py \
-    --src outputs/qwen3vl/$RUN_NAME/infer_results.json \
-    --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
-
-# PaliGemma predictions
-RUN_NAME=<run_name>
-python tools/evaluation.py \
-    --src outputs/paligemma/$RUN_NAME/infer_results.json \
-    --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
-
-# Generic form
-python tools/evaluation.py \
-    --src <OUTPUT_JSON> \
+    --src $ADAPTER_DIR/infer_results.json \
     --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
 ```

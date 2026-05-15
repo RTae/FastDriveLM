@@ -27,75 +27,39 @@ TORCH_DTYPES = {
 }
 
 
-def is_adapter_directory(path: Path) -> bool:
-    if not path.is_dir():
-        return False
-
-    has_config = (path / "adapter_config.json").exists()
-    has_weights = (path / "adapter_model.safetensors").exists() or any(
-        path.glob("adapter_model*.bin")
-    )
-    return has_config and has_weights
-
-
 def load_json_file(path: Path):
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def resolve_adapter_path_from_root(path_str):
-    if not path_str:
+def validate_adapter_path(adapter_path):
+    if not adapter_path:
         return None
 
-    root = Path(path_str)
-    if not root.exists():
-        raise ValueError(f"Adapter path does not exist: {root}")
+    path = Path(adapter_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Adapter path does not exist: {path}")
+    if not path.is_dir():
+        raise NotADirectoryError(f"Adapter path is not a directory: {path}")
 
-    candidates = []
-    if root.is_dir():
-        candidates.append(root)
-        candidates.append(root / "final_model")
+    adapter_config = path / "adapter_config.json"
+    if not adapter_config.exists():
+        raise FileNotFoundError(f"Missing file: {adapter_config}")
 
-        training_info_path = root / "training_info.json"
-        if training_info_path.exists():
-            try:
-                training_info = load_json_file(training_info_path)
-                latest_checkpoint = training_info.get("latest_checkpoint")
-                if latest_checkpoint:
-                    latest_checkpoint = Path(latest_checkpoint)
-                    if not latest_checkpoint.is_absolute():
-                        latest_checkpoint = root / latest_checkpoint.name
-                    candidates.append(latest_checkpoint)
-            except json.JSONDecodeError:
-                pass
-
-    for candidate in candidates:
-        if is_adapter_directory(candidate):
-            return str(candidate)
-
-    checked = [str(c) for c in candidates]
-    raise ValueError(
-        "Could not find a valid adapter directory from --adapter-path. "
-        "Expected adapter_config.json and adapter_model.safetensors in one of: "
-        f"{checked}."
+    has_weights = (path / "adapter_model.safetensors").exists() or any(
+        path.glob("adapter_model*.bin")
     )
+    if not has_weights:
+        raise FileNotFoundError(
+            "Missing adapter weights in directory. "
+            "Expected adapter_model.safetensors or adapter_model*.bin"
+        )
+
+    return str(path)
 
 
 def resolve_paths(args):
-    model_path = args.model_path
-    adapter_path = resolve_adapter_path_from_root(args.adapter_path) if args.adapter_path else None
-
-    # If model-path actually points to a LoRA checkpoint/run folder, treat it as adapter input.
-    if model_path and not adapter_path:
-        try:
-            adapter_candidate = resolve_adapter_path_from_root(model_path)
-            if adapter_candidate:
-                adapter_path = adapter_candidate
-                model_path = None
-        except ValueError:
-            pass
-
-    return model_path, adapter_path
+    return args.model_path, validate_adapter_path(args.adapter_path)
 
 
 def resolve_base_model(args, adapter_path=None):
@@ -106,9 +70,6 @@ def resolve_base_model(args, adapter_path=None):
         return None
 
     adapter_config_path = Path(adapter_path) / "adapter_config.json"
-    if not adapter_config_path.exists():
-        return None
-
     adapter_config = load_json_file(adapter_config_path)
 
     return adapter_config.get("base_model_name_or_path")
@@ -161,7 +122,7 @@ def load_model_and_processor(args):
         if adapter_path:
             checked_path = Path(adapter_path) / "adapter_config.json"
         raise ValueError(
-            "Provide --model-path, or pass --adapter-path with adapter_config.json, "
+            "Provide --model-path, or pass --adapter-path with required adapter files, "
             "or set --base-model explicitly. "
             f"Checked: {checked_path}. If you are using a shell variable like RUN_NAME, "
             "assign it before running python."
@@ -262,9 +223,9 @@ def parse_args():
                         help="Base model name or path. Optional when --adapter-path contains adapter_config.json.")
     parser.add_argument("--adapter-path", type=str, default=None,
                         help=(
-                            "Path to LoRA/PEFT weights. Supports direct adapter folders "
-                            "(contains adapter_config.json), run output folders (contains final_model), "
-                            "or direct checkpoint folders like outputs/.../epoch-3."
+                            "Path to a LoRA/PEFT adapter directory. The directory must contain "
+                            "adapter_config.json and adapter weights "
+                            "(adapter_model.safetensors or adapter_model*.bin)."
                         ))
     parser.add_argument("--processor-path", type=str, default=None,
                         help="Processor/tokenizer source. Defaults to the base model.")
