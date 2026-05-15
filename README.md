@@ -109,7 +109,10 @@ Also, use the matching validation collate function for your model:
 - `drivelm_nus_phi4_collate_fn_val`
 
 ```bash
-# Qwen2.5-VL / Qwen3-VL LoRA epoch checkpoint (direct path)
+make inference_qwen3vl OUTPUT_MODEL=outputs/qwen3vl/epoch-3
+
+# or run directly with python
+
 OUTPUT_MODEL=outputs/qwen3vl/epoch-3
 COLLATE_FN=drivelm_nus_qwen3vl_collate_fn_val
 python tools/inference.py \
