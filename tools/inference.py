@@ -27,19 +27,89 @@ TORCH_DTYPES = {
 }
 
 
-def resolve_base_model(args):
+def is_adapter_directory(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+
+    has_config = (path / "adapter_config.json").exists()
+    has_weights = (path / "adapter_model.safetensors").exists() or any(
+        path.glob("adapter_model*.bin")
+    )
+    return has_config and has_weights
+
+
+def load_json_file(path: Path):
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def resolve_adapter_path_from_root(path_str):
+    if not path_str:
+        return None
+
+    root = Path(path_str)
+    if not root.exists():
+        raise ValueError(f"Adapter path does not exist: {root}")
+
+    candidates = []
+    if root.is_dir():
+        candidates.append(root)
+        candidates.append(root / "final_model")
+
+        training_info_path = root / "training_info.json"
+        if training_info_path.exists():
+            try:
+                training_info = load_json_file(training_info_path)
+                latest_checkpoint = training_info.get("latest_checkpoint")
+                if latest_checkpoint:
+                    latest_checkpoint = Path(latest_checkpoint)
+                    if not latest_checkpoint.is_absolute():
+                        latest_checkpoint = root / latest_checkpoint.name
+                    candidates.append(latest_checkpoint)
+            except json.JSONDecodeError:
+                pass
+
+    for candidate in candidates:
+        if is_adapter_directory(candidate):
+            return str(candidate)
+
+    checked = [str(c) for c in candidates]
+    raise ValueError(
+        "Could not find a valid adapter directory from --adapter-path. "
+        "Expected adapter_config.json and adapter_model.safetensors in one of: "
+        f"{checked}."
+    )
+
+
+def resolve_paths(args):
+    model_path = args.model_path
+    adapter_path = resolve_adapter_path_from_root(args.adapter_path) if args.adapter_path else None
+
+    # If model-path actually points to a LoRA checkpoint/run folder, treat it as adapter input.
+    if model_path and not adapter_path:
+        try:
+            adapter_candidate = resolve_adapter_path_from_root(model_path)
+            if adapter_candidate:
+                adapter_path = adapter_candidate
+                model_path = None
+        except ValueError:
+            pass
+
+    return model_path, adapter_path
+
+
+def resolve_base_model(args, adapter_path=None):
     if args.base_model:
         return args.base_model
 
-    if not args.adapter_path:
+    if not adapter_path:
         return None
 
-    adapter_config_path = Path(args.adapter_path) / "adapter_config.json"
+    adapter_config_path = Path(adapter_path) / "adapter_config.json"
     if not adapter_config_path.exists():
         return None
 
-    with adapter_config_path.open("r", encoding="utf-8") as f:
-        adapter_config = json.load(f)
+    adapter_config = load_json_file(adapter_config_path)
 
     return adapter_config.get("base_model_name_or_path")
 
@@ -83,12 +153,13 @@ def load_generation_config(model, generation_source):
 
 
 def load_model_and_processor(args):
-    base_model = resolve_base_model(args)
-    model_reference = args.model_path or base_model
+    model_path, adapter_path = resolve_paths(args)
+    base_model = resolve_base_model(args, adapter_path=adapter_path)
+    model_reference = model_path or base_model
     if model_reference is None:
         checked_path = None
-        if args.adapter_path:
-            checked_path = Path(args.adapter_path) / "adapter_config.json"
+        if adapter_path:
+            checked_path = Path(adapter_path) / "adapter_config.json"
         raise ValueError(
             "Provide --model-path, or pass --adapter-path with adapter_config.json, "
             "or set --base-model explicitly. "
@@ -119,8 +190,8 @@ def load_model_and_processor(args):
         model_kwargs["torch_dtype"] = torch_dtype
     model = model_loader.from_pretrained(model_reference, **model_kwargs)
 
-    if args.adapter_path:
-        model = PeftModel.from_pretrained(model, args.adapter_path)
+    if adapter_path:
+        model = PeftModel.from_pretrained(model, adapter_path)
         model = model.merge_and_unload()
 
     model.to(args.device)
@@ -190,7 +261,11 @@ def parse_args():
     parser.add_argument("--base-model", type=str, default=None,
                         help="Base model name or path. Optional when --adapter-path contains adapter_config.json.")
     parser.add_argument("--adapter-path", type=str, default=None,
-                        help="Path to a LoRA/PEFT adapter directory such as outputs/.../final_model.")
+                        help=(
+                            "Path to LoRA/PEFT weights. Supports direct adapter folders "
+                            "(contains adapter_config.json), run output folders (contains final_model), "
+                            "or direct checkpoint folders like outputs/.../epoch-3."
+                        ))
     parser.add_argument("--processor-path", type=str, default=None,
                         help="Processor/tokenizer source. Defaults to the base model.")
     parser.add_argument("--generation-config-path", type=str, default=None,

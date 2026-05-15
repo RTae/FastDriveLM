@@ -92,41 +92,37 @@ model_name: str = "Qwen/Qwen3-VL-8B-Instruct"   # default
 
 ### Run inference
 
-If you do not activate the virtual environment first, replace `python` with `.venv/bin/python`.
+For LoRA checkpoints, `--base-model` is optional when `adapter_config.json` is present in the adapter folder; the script will read the base model path from that file automatically.
 
-For LoRA checkpoints, `--base-model` is optional when `adapter_config.json` is present in `final_model`; the script will read the base model path from that file automatically.
+`--adapter-path` supports:
 
-```bash
-# Qwen2.5-VL / Qwen3-VL LoRA checkpoint
-RUN_NAME=qwen3vl-2026-05-14_20-38
-python tools/inference.py \
-    --adapter-path outputs/qwen3vl/$RUN_NAME/final_model \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
-    --output outputs/qwen3vl/$RUN_NAME/infer_results.json
+- a direct adapter folder (for example `outputs/.../epoch-3` or `outputs/.../final_model`)
+- a run output folder that contains `final_model` (for example `outputs/qwen3vl/<run_name>`)
 
-# PaliGemma LoRA checkpoint
-RUN_NAME=<run_name>
-python tools/inference.py \
-    --adapter-path outputs/paligemma/$RUN_NAME/final_model \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --collate_fn drivelm_nus_paligemma_collate_fn_val \
-    --output outputs/paligemma/$RUN_NAME/infer_results.json
-
-# Full model checkpoint directory
-python tools/inference.py \
-    --model-path <MODEL_DIR> \
-    --processor-path <BASE_MODEL_OR_PROCESSOR_DIR> \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --collate_fn <COLLATE_FN_VAL> \
-    --output <OUTPUT_JSON>
-```
-
-Use the matching validation collate function for your model:
+Also, use the matching validation collate function for your model:
 
 - `drivelm_nus_paligemma_collate_fn_val`
 - `drivelm_nus_qwen3vl_collate_fn_val`
 - `drivelm_nus_phi4_collate_fn_val`
+
+```bash
+# Qwen2.5-VL / Qwen3-VL LoRA run folder (contains final_model)
+RUN_DIR=outputs/qwen3vl/qwen3vl-2026-05-14_20-38
+COLLATE_FN=drivelm_nus_qwen3vl_collate_fn_val
+python tools/inference.py \
+    --adapter-path $RUN_DIR \
+    --collate_fn $COLLATE_FN \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output $RUN_DIR/infer_results.json
+
+# Qwen2.5-VL / Qwen3-VL LoRA epoch checkpoint (direct path)
+EPOCH_DIR=outputs/qwen3vl/epoch-3
+python tools/inference.py \
+    --adapter-path $EPOCH_DIR \
+    --collate_fn $COLLATE_FN \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output $EPOCH_DIR/infer_results.json
+```
 
 ### Evaluate
 
