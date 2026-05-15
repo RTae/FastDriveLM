@@ -16,11 +16,13 @@ class DriveLMNusQwen3VLDraftConfig:
     dataset_name: str = "datasets/DriveLM_nuScenes/split/train"      
     dataset_val_name: str = "datasets/DriveLM_nuScenes/split/val"    
 
+    # Optional pre-trained LoRA adapter to load before fine-tuning
     peft_name: Optional[str] = None
 
     # ── Run / checkpoint ──────────────────────────────────────────────────────
     run_name: str = f"qwen3vl-2b-draft-{datetime.now().strftime('%Y-%m-%d_%H-%M')}"
     output_dir: str = "outputs/qwen3vl_draft/" + f"{run_name}"
+    wandb_project: Optional[str] = None
 
     # ── Training hyper-parameters ─────────────────────────────────────────────
     num_train_epochs: int = 3                        
