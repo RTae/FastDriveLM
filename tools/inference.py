@@ -86,9 +86,14 @@ def load_model_and_processor(args):
     base_model = resolve_base_model(args)
     model_reference = args.model_path or base_model
     if model_reference is None:
+        checked_path = None
+        if args.adapter_path:
+            checked_path = Path(args.adapter_path) / "adapter_config.json"
         raise ValueError(
             "Provide --model-path, or pass --adapter-path with adapter_config.json, "
-            "or set --base-model explicitly."
+            "or set --base-model explicitly. "
+            f"Checked: {checked_path}. If you are using a shell variable like RUN_NAME, "
+            "assign it before running python."
         )
 
     processor_path = args.processor_path or base_model or model_reference

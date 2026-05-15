@@ -5,6 +5,20 @@
 - Install [uv](https://docs.astral.sh/uv/getting-started/installation/) for virtual environment management and dependency installation.
 
 ## Installation
+1. External dependencies for language evaluation (BLEU, ROUGE, etc.)
+```bash
+apt-get update && apt-get install -y software-properties-common
+
+# Oracle Java
+sudo add-apt-repository ppa:webupd8team/java
+sudo apt update
+apt-get install oracle-java8-installer
+
+# libxml-parser-perl
+sudo apt install libxml-parser-perl
+```
+
+2. Install Python dependencies and set up virtual environment
 ```bash
 uv sync
 ```
@@ -37,43 +51,36 @@ make create_dataset
 ```
 after running this script, the data will be organized as follows:
 ```bash
-    --output outputs/qwen3vl/<run_name>/infer_results.json
+/datasets
 └── DriveLM_nuScenes
     ├── nuscenes
     │    └── samples
     ├── QA_dataset_nus
     │    └── v1_1_train_nus.json
     ├── refs
-    --output outputs/paligemma/<run_name>/infer_results.json
+    │    ├── train_cot.json
     │    ├── val_cot.json
     │    └── val_qa_style.json
     └── split
          ├── train/
          └── val/
 ```
-    --collate_fn <COLLATE_FN_VAL> \
-    --output <OUTPUT_JSON>
+
+### Run fine-tuning
 
 Single GPU:
 ```bash
 python tools/finetune.py <CONFIG>
-    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
-    --output outputs/qwen3vl/<run_name>/infer_results.json
+```
 
-# PaliGemma fine-tuned checkpoint
+Multi-GPU (DDP via Accelerate):
+```bash
+accelerate launch --num_processes=<NUM_GPUS> tools/finetune.py <CONFIG>
 ```
 
 Examples:
 ```bash
 # PaliGemma — single GPU
-
-# Full model checkpoint directory
-python tools/inference.py \
-    --model-path <MODEL_DIR> \
-    --processor-path <BASE_MODEL_OR_PROCESSOR_DIR> \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --collate_fn <COLLATE_FN_VAL> \
-    --output infer_results.json
 python tools/finetune.py configs/paligemma/paligemma_drivelm_config.py
 
 # Phi-4 — single GPU
@@ -104,14 +111,16 @@ For LoRA checkpoints, `--base-model` is optional when `adapter_config.json` is p
 
 ```bash
 # Qwen2.5-VL / Qwen3-VL LoRA checkpoint
-RUN_NAME=<run_name> python tools/inference.py \
+RUN_NAME=<run_name>
+python tools/inference.py \
     --adapter-path outputs/qwen3vl/$RUN_NAME/final_model \
     --data datasets/DriveLM_nuScenes/split/val \
     --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
     --output outputs/qwen3vl/$RUN_NAME/infer_results.json
 
 # PaliGemma LoRA checkpoint
-RUN_NAME=<run_name> python tools/inference.py \
+RUN_NAME=<run_name>
+python tools/inference.py \
     --adapter-path outputs/paligemma/$RUN_NAME/final_model \
     --data datasets/DriveLM_nuScenes/split/val \
     --collate_fn drivelm_nus_paligemma_collate_fn_val \
@@ -154,5 +163,3 @@ python tools/evaluation.py \
     --src <OUTPUT_JSON> \
     --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
 ```
-
-Note: `tools/evaluation.py` imports `language_evaluation`. Make sure that dependency is installed in your environment before running evaluation.
