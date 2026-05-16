@@ -8,3 +8,5 @@ __pycache__/*
 outputs/*
 !outputs/.gitkeep
 paligemma_update.json
+*.log
+qwen3vl.json
