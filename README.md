@@ -23,7 +23,23 @@ Supported models:
 |-------|--------|
 | PaliGemma | `configs/paligemma/paligemma_drivelm_config.py` |
 | Phi-4 Multimodal | `configs/phi4/phi4_drivelm_1xb1-lora_config.py` |
-| Qwen2.5-VL / Qwen3-VL | `configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py` |
+| Qwen3-VL | `configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py` |
+| Qwen3-VL-Draft | `configs/qwen3/qwen3vl_drivelm-draft_1xb1-lora_config.py` |
+
+| Metric | qwen3vl (baseline) | qwen3vl_draft |
+|---|---|---|
+| **Final Score** | **0.6443** | **0.6213** |
+| Accuracy | 0.9084 | 0.8890 |
+| Match Score | 54.51 | 48.997 |
+| BLEU-1 | 0.7434 | 0.7701 |
+| BLEU-2 | 0.7030 | 0.7255 |
+| BLEU-3 | 0.6637 | 0.6824 |
+| BLEU-4 | 0.6255 | 0.6404 |
+| ROUGE-L | 0.7244 | 0.7240 |
+| CIDEr | 0.2938 | 0.2625 |
+| test len | 45064 | 48975 |
+| ref len | 48829 | 48829 |
+| ratio | 0.923 | 1.003 |
 
 ### Prepare data
 
@@ -131,10 +147,7 @@ Run evaluation on the JSON file produced by `tools/inference.py`.
 `--src` should point to your inference output, while `--tgt` should point to the validation reference file.
 
 ```bash
-# Qwen2.5-VL / Qwen3-VL predictions
-RUN_NAME=qwen3vl-2026-05-14_20-38
-OUTPUT_MODEL=outputs/qwen3vl/$RUN_NAME/final_model
 python tools/evaluation.py \
-    --src $OUTPUT_MODEL/infer_results.json \
+    --src ./outputs/qwen3vl_draft/qwen3vl-2b-draft-2026-05-16_15-31/epoch-3/infer_results.json \
     --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
 ```
