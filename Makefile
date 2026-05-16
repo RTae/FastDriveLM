@@ -34,11 +34,10 @@ fine_tune_qwen3vl_draft:
 		--log_path qwen3vl.json \
 		configs/qwen3/qwen3vl_drivelm-draft_1xb1-lora_config.py
 
-OUTPUT_MODEL := outputs/qwen3vl/epoch-3
+OUTPUT_MODEL := ./outputs/qwen3vl/epoch-3
 inference_qwen3vl:
-	OUTPUT_MODEL=$(OUTPUT_MODEL)
 	python tools/inference.py \
-		--model-path $OUTPUT_MODEL \
+		--model-path $(OUTPUT_MODEL) \
 		--collate_fn drivelm_nus_qwen3vl_collate_fn_val \
 		--data datasets/DriveLM_nuScenes/split/val \
-		--output $OUTPUT_MODEL/infer_results.json
+		--output $(OUTPUT_MODEL)/infer_results.json
