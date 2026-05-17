@@ -125,15 +125,14 @@ Also, use the matching validation collate function for your model:
 - `drivelm_nus_phi4_collate_fn_val`
 
 ```bash
-make inference_qwen3vl OUTPUT_MODEL=outputs/qwen3vl/epoch-3
+make inference_qwen3vl OUTPUT_MODEL=./outputs/Qwen3-VL-8B-Instruct
 
 # or run directly with python
 
-OUTPUT_MODEL=outputs/qwen3vl/epoch-3
-COLLATE_FN=drivelm_nus_qwen3vl_collate_fn_val
+OUTPUT_MODEL=./outputs/Qwen3-VL-8B-Instruct
 python tools/inference.py \
     --model-path $OUTPUT_MODEL \
-    --collate_fn $COLLATE_FN \
+    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
     --data datasets/DriveLM_nuScenes/split/val \
     --output $OUTPUT_MODEL/infer_results.json
 ```
@@ -147,7 +146,8 @@ Run evaluation on the JSON file produced by `tools/inference.py`.
 `--src` should point to your inference output, while `--tgt` should point to the validation reference file.
 
 ```bash
+OUTPUT_MODEL=./outputs/Qwen3-VL-8B-Instruct
 python tools/evaluation.py \
-    --src ./outputs/qwen3vl_draft/qwen3vl-2b-draft-2026-05-16_15-31/epoch-3/infer_results.json \
+    --src $OUTPUT_MODEL/infer_results.json \
     --tgt datasets/DriveLM_nuScenes/refs/val_cot.json
 ```
