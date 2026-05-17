@@ -45,19 +45,7 @@ Download fine-tuning model, when you download a model you need to check a adpert
 | ratio | 0.923 | 1.003 |
 
 
-## Fine-tune model (Optional)
-
-Supported models:
-
-| Model | Config |
-|-------|--------|
-| PaliGemma | `configs/paligemma/paligemma_drivelm_config.py` |
-| Phi-4 Multimodal | `configs/phi4/phi4_drivelm_1xb1-lora_config.py` |
-| Qwen3-VL | `configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py` |
-| Qwen3-VL-Draft | `configs/qwen3/qwen3vl_drivelm-draft_1xb1-lora_config.py` |
-
-
-### Prepare data
+## Prepare data
 
 1. Download data
 ```bash
@@ -84,6 +72,18 @@ after running this script, the data will be organized as follows:
          ├── train/
          └── val/
 ```
+
+## Fine-tune model (Optional)
+
+Supported models:
+
+| Model | Config |
+|-------|--------|
+| PaliGemma | `configs/paligemma/paligemma_drivelm_config.py` |
+| Phi-4 Multimodal | `configs/phi4/phi4_drivelm_1xb1-lora_config.py` |
+| Qwen3-VL | `configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py` |
+| Qwen3-VL-Draft | `configs/qwen3/qwen3vl_drivelm-draft_1xb1-lora_config.py` |
+
 
 ### Run fine-tuning
 
@@ -130,7 +130,7 @@ model_name: str = "Qwen/Qwen3-VL-8B-Instruct"   # default
 # model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct"
 ```
 
-### Run inference
+## Run inference
 
 Use `--model-path` as the single model directory argument.
 
@@ -163,7 +163,7 @@ python tools/inference.py \
     --output $OUTPUT_MODEL/infer_results.json
 ```
 
-### Evaluate
+## Evaluate
 
 Run evaluation on the JSON file produced by `tools/inference.py`.
 
