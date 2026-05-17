@@ -71,6 +71,14 @@ after running this script, the data will be organized as follows:
 
 ### Run fine-tuning
 
+1. Download pre-trained model weights (if not already available)
+```bash
+make download_models MODEL_NAME=Qwen/Qwen3-VL-8B-Instruct
+# or
+make download_models MODEL_NAME=Qwen/Qwen3-VL-2B-Instruct
+```
+
+2. Run fine-tuning with the config of your choice. Adjust `NUM_GPUS` for multi-GPU training.
 Single GPU:
 ```bash
 python tools/finetune.py <CONFIG>
@@ -124,6 +132,8 @@ Also, use the matching validation collate function for your model:
 - `drivelm_nus_qwen3vl_collate_fn_val`
 - `drivelm_nus_phi4_collate_fn_val`
 
+**Also, make sure you have the pre-trained model weights downloaded for inference.**
+
 ```bash
 make inference_qwen3vl OUTPUT_MODEL=./outputs/Qwen3-VL-8B-Instruct
 
@@ -144,6 +154,8 @@ Run evaluation on the JSON file produced by `tools/inference.py`.
 `tools/evaluation.py` now includes a built-in BLEU-1..4, ROUGE-L, and CIDEr scorer, so no extra evaluation package is required.
 
 `--src` should point to your inference output, while `--tgt` should point to the validation reference file.
+
+**Also, make sure you have the pre-trained model weights downloaded for inference.**
 
 ```bash
 OUTPUT_MODEL=./outputs/Qwen3-VL-8B-Instruct
