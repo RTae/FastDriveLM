@@ -33,7 +33,7 @@ make download_models MODEL_NAME=Qwen/Qwen3-VL-8B-Instruct
 make download_models MODEL_NAME=Qwen/Qwen3-VL-2B-Instruct
 ```
 
-Download fine-tuning model
+Download fine-tuning model, when you download a model you need to check a adperter_config.json file that the path for the base model is correct, if not, you need to download the base model and put it in the correct path. The base model should be the same as the one used for fine-tuning.
 | Model | link |
 |-------|------|
 | Qwen3-VL-8B (baseline) | [Google Drive](https://drive.google.com/file/d/1oIzpvCMWGj5O8cwTRyc8he5YA6opLozH/view?usp=sharing)

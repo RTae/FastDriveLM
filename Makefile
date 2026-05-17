@@ -8,7 +8,7 @@ create_dataset:
 
 MODEL_NAME=Qwen/Qwen3-VL-8B-Instruct
 download_model:
-	HF_ENDPOINT=$(HF_ENDPOINT) hf download $(MODEL_NAME) --local-dir ./outputs/models/$(MODEL_NAME)
+	HF_ENDPOINT=$(HF_ENDPOINT) hf download $(MODEL_NAME) --local-dir ./base_models/$(MODEL_NAME)
 
 NUMBER_OF_GPUS := 2
 NUM_MACHINES := 1
