@@ -26,6 +26,19 @@ Supported models:
 | Qwen3-VL | `configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py` |
 | Qwen3-VL-Draft | `configs/qwen3/qwen3vl_drivelm-draft_1xb1-lora_config.py` |
 
+Download pre-trained model weights (if not already available):
+```bash
+make download_models MODEL_NAME=Qwen/Qwen3-VL-8B-Instruct
+# or
+make download_models MODEL_NAME=Qwen/Qwen3-VL-2B-Instruct
+```
+
+Download fine-tuning model
+| Model | link |
+|-------|------|
+| Qwen3-VL-8B (baseline) | [Google Drive](https://drive.google.com/file/d/1oIzpvCMWGj5O8cwTRyc8he5YA6opLozH/view?usp=sharing)
+| Qwen3-VL-2B (Draft) | [Google Drive](https://drive.google.com/file/d/1UjANF-QnXxT46p9z9xcm9FjaO55pQhz-/view?usp=sharing) |
+
 | Metric | qwen3vl (baseline) | qwen3vl_draft |
 |---|---|---|
 | **Final Score** | **0.6443** | **0.6213** |
