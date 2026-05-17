@@ -15,17 +15,7 @@ uv sync
 source .venv/bin/activate
 ```
 
-## Fine-tune model (Optional)
-
-Supported models:
-
-| Model | Config |
-|-------|--------|
-| PaliGemma | `configs/paligemma/paligemma_drivelm_config.py` |
-| Phi-4 Multimodal | `configs/phi4/phi4_drivelm_1xb1-lora_config.py` |
-| Qwen3-VL | `configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py` |
-| Qwen3-VL-Draft | `configs/qwen3/qwen3vl_drivelm-draft_1xb1-lora_config.py` |
-
+## Download pre-trained model weights
 Download pre-trained model weights (if not already available):
 ```bash
 make download_models MODEL_NAME=Qwen/Qwen3-VL-8B-Instruct
@@ -53,6 +43,19 @@ Download fine-tuning model, when you download a model you need to check a adpert
 | test len | 45064 | 48975 |
 | ref len | 48829 | 48829 |
 | ratio | 0.923 | 1.003 |
+
+
+## Fine-tune model (Optional)
+
+Supported models:
+
+| Model | Config |
+|-------|--------|
+| PaliGemma | `configs/paligemma/paligemma_drivelm_config.py` |
+| Phi-4 Multimodal | `configs/phi4/phi4_drivelm_1xb1-lora_config.py` |
+| Qwen3-VL | `configs/qwen3/qwen3vl_drivelm_1xb1-lora_config.py` |
+| Qwen3-VL-Draft | `configs/qwen3/qwen3vl_drivelm-draft_1xb1-lora_config.py` |
+
 
 ### Prepare data
 
