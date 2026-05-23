@@ -8,9 +8,9 @@ from ssd.utils.async_helpers.async_spec_helpers import apply_sampler_x_rescaling
 # but generator is on CUDA, causing TypeError: RNG state must be a torch.ByteTensor.
 import flashinfer.sampling as _fi_samp
 _orig_get_seed_and_offset = _fi_samp.get_seed_and_offset
-def _fixed_get_seed_and_offset(increment, generator=None):
+def _fixed_get_seed_and_offset(increment, generator=None, device=None):
     if generator is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         generator = torch.Generator(device=device)
     state = generator.get_state()
     seed, offset = state.view(torch.int64)
