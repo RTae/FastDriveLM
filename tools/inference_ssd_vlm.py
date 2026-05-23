@@ -17,13 +17,16 @@ SSD_ROOT = REPO_ROOT / "ssd"
 def _ensure_env_defaults() -> None:
     os.environ.setdefault("SSD_HF_CACHE", str(REPO_ROOT / "base_models"))
     os.environ.setdefault("SSD_DATASET_DIR", str(REPO_ROOT / "datasets"))
+    venv_bin = REPO_ROOT / ".venv" / "bin"
+    if venv_bin.exists():
+        os.environ["PATH"] = f"{venv_bin}{os.pathsep}{os.environ.get('PATH', '')}"
 
 
 _ensure_env_defaults()
 if str(SSD_ROOT) not in sys.path:
     sys.path.insert(0, str(SSD_ROOT))
 
-from ssd import Config, SamplingParams  # noqa: E402
+from ssd import SamplingParams  # noqa: E402
 from ssd.engine.llm_engine import LLMEngine  # noqa: E402
 
 
@@ -92,8 +95,8 @@ def parse_args():
 def _build_engine(args):
     target_model, target_lora = _resolve_model_and_lora(args.target_model)
     draft_model, draft_lora = _resolve_model_and_lora(args.draft_model)
-    config = Config(
-        model=target_model,
+    return LLMEngine(
+        target_model,
         draft=draft_model,
         lora_path=target_lora,
         draft_lora_path=draft_lora,
@@ -104,7 +107,6 @@ def _build_engine(args):
         speculate_k=args.spec_k,
         max_model_len=args.max_model_len,
     )
-    return LLMEngine(config)
 
 
 def _safe_divide(numerator: float, denominator: float) -> float:

@@ -61,6 +61,9 @@ def _parse_lora_key(key: str) -> tuple[str, str, str] | None:
             key = key[len(prefix):]
             break
 
+    if key.startswith("model.language_model."):
+        key = key.replace("model.language_model.", "model.", 1)
+
     # Must end with .lora_A.weight or .lora_B.weight
     if key.endswith(".lora_A.weight"):
         lora_type = "lora_A"

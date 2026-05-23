@@ -4,6 +4,30 @@ from transformers import AutoConfig
 import torch
 from ssd.paths import DEFAULT_TARGET, DEFAULT_DRAFT
 
+
+MULTIMODAL_MODEL_TYPES = {"qwen3_vl", "qwen2_5_vl", "qwen2_vl"}
+
+
+def _get_model_config(model: str, is_vlm: bool):
+    hf_config = AutoConfig.from_pretrained(model, trust_remote_code=True)
+    if not (is_vlm or getattr(hf_config, "model_type", None) in MULTIMODAL_MODEL_TYPES):
+        return hf_config, False
+
+    text_config = getattr(hf_config, "text_config", hf_config)
+    for attr in ("vision_config", "vision_start_token_id", "vision_end_token_id", "image_token_id", "video_token_id"):
+        if hasattr(hf_config, attr) and not hasattr(text_config, attr):
+            setattr(text_config, attr, getattr(hf_config, attr))
+    if not hasattr(text_config, "tie_word_embeddings"):
+        text_config.tie_word_embeddings = getattr(hf_config, "tie_word_embeddings", False)
+    if getattr(text_config, "model_type", None) == "qwen3_vl_text":
+        text_config.model_type = "qwen3"
+    return text_config, True
+
+
+def _cap_max_model_len(max_model_len: int, hf_config: AutoConfig) -> int:
+    max_position_embeddings = getattr(hf_config, "max_position_embeddings", None)
+    return min(max_model_len, max_position_embeddings) if max_position_embeddings else max_model_len
+
 @dataclass
 class Config:
     model: str = DEFAULT_TARGET
@@ -60,14 +84,14 @@ class Config:
         assert os.path.isdir(model)
 
         assert 1 <= self.num_gpus <= 8 # this codebase only works on one node 
-        self.hf_config = AutoConfig.from_pretrained(model)
-        self.max_model_len = min(
-            self.max_model_len, self.hf_config.max_position_embeddings) 
+        self.hf_config, self.is_vlm = _get_model_config(model, self.is_vlm)
+        self.max_model_len = _cap_max_model_len(self.max_model_len, self.hf_config)
         if self.speculate: 
             draft = self.draft
-            self.draft_hf_config = AutoConfig.from_pretrained(draft)
-            self.max_model_len = min(
-                self.max_model_len, self.draft_hf_config.max_position_embeddings)
+            self.draft_hf_config, draft_is_vlm = _get_model_config(draft, self.is_vlm)
+            if self.is_vlm:
+                assert draft_is_vlm, "ERROR in Config: VLM target requires VLM draft"
+            self.max_model_len = _cap_max_model_len(self.max_model_len, self.draft_hf_config)
             if self.draft_async:
                 if self.fan_out_list is None: 
                     self.fan_out_list = [self.async_fan_out] * (self.speculate_k + 1)

@@ -172,7 +172,7 @@ class Qwen3DecoderLayer(nn.Module):
             qkv_bias=getattr(config, 'attention_bias', False),
             head_dim=getattr(config, 'head_dim', None),
             rope_theta=getattr(config, "rope_theta", 1000000),
-            rope_scaling=getattr(config, "rope_scaling", None),
+            rope_scaling=None,
             draft=self.draft,
             speculate=self.speculate,
             spec_k=self.spec_k,

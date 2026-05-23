@@ -189,6 +189,12 @@ def load_safetensors_model(model: nn.Module, path: str, packed_modules_mapping: 
     for file in tqdm(safetensor_files, desc="Loading model files"):
         with safe_open(file, "pt", "cpu") as f:
             for weight_name in f.keys():
+                source_weight_name = weight_name
+                if weight_name.startswith("model.language_model."):
+                    weight_name = weight_name.replace("model.language_model.", "model.", 1)
+                elif weight_name.startswith("model.visual."):
+                    weight_name = weight_name.replace("model.visual.", "visual.visual.", 1)
+
                 # Skip vision encoder weights if the model doesn't have a visual module
                 # (e.g. loading a VLM checkpoint but only using the LM part)
                 if weight_name.startswith("visual."):
@@ -201,7 +207,7 @@ def load_safetensors_model(model: nn.Module, path: str, packed_modules_mapping: 
                         param_name = weight_name.replace(k, v)
                         param = model.get_parameter(param_name)
                         weight_loader = getattr(param, "weight_loader")
-                        weight_loader(param, f.get_tensor(weight_name), shard_id)
+                        weight_loader(param, f.get_tensor(source_weight_name), shard_id)
                         break
                 else:
                     try:
@@ -210,7 +216,7 @@ def load_safetensors_model(model: nn.Module, path: str, packed_modules_mapping: 
                         # Skip weights not present in model (e.g. vision weights when not VLM)
                         continue
                     weight_loader = getattr(param, "weight_loader", default_weight_loader)
-                    weight_loader(param, f.get_tensor(weight_name))
+                    weight_loader(param, f.get_tensor(source_weight_name))
 
 
 def load_model(model: nn.Module, path: str, target_path: str = None, target_hidden_size: int = None, lora_path: str = None):

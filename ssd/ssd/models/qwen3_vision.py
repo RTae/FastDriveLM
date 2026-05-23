@@ -30,20 +30,21 @@ class Qwen3VisionEncoder(nn.Module):
 
         # Import the HF vision model class
         try:
-            from transformers import Qwen2VLForConditionalGeneration
-            # Extract just the vision model architecture from a dummy or the config
-            from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VisionTransformerPretrainedModel
-            self.visual = Qwen2VisionTransformerPretrainedModel._from_config(vision_config)
+            from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLVisionModel
+            self.visual = Qwen3VLVisionModel(vision_config)
         except ImportError:
-            # Fallback: try Qwen2_5 naming
             try:
-                from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLVisionModel
-                self.visual = Qwen2_5_VLVisionModel(vision_config)
+                from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VisionTransformerPretrainedModel
+                self.visual = Qwen2VisionTransformerPretrainedModel._from_config(vision_config)
             except ImportError:
-                raise ImportError(
-                    "Could not import Qwen2-VL or Qwen2.5-VL vision model from transformers. "
-                    "Please upgrade transformers: pip install transformers>=4.45.0"
-                )
+                try:
+                    from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLVisionModel
+                    self.visual = Qwen2_5_VLVisionModel(vision_config)
+                except ImportError:
+                    raise ImportError(
+                        "Could not import Qwen3-VL, Qwen2-VL, or Qwen2.5-VL vision model from transformers. "
+                        "Please upgrade transformers."
+                    )
 
         # The visual projection maps vision hidden size -> LM hidden size
         vision_hidden_size = getattr(vision_config, "hidden_size", None)
@@ -76,4 +77,8 @@ class Qwen3VisionEncoder(nn.Module):
         """
         pixel_values = pixel_values.to(dtype=self.dtype)
         image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
+        if hasattr(image_embeds, "pooler_output"):
+            image_embeds = image_embeds.pooler_output
+            if isinstance(image_embeds, (list, tuple)):
+                image_embeds = torch.cat(image_embeds, dim=0)
         return image_embeds
