@@ -223,6 +223,8 @@ def main(args):
         dtype=TORCH_DTYPES[args.dtype] or torch.float32,
     )
     dataset = load_from_disk(args.data)
+    if args.max_samples is not None:
+        dataset = dataset.select(range(min(args.max_samples, len(dataset))))
     dataloader = DataLoader(
         dataset,
         batch_size=1,
@@ -284,6 +286,8 @@ def parse_args():
                         help="Optional model dtype override.")
     parser.add_argument("--max-new-tokens", type=int, default=1000,
                         help="Maximum number of tokens to generate per sample.")
+    parser.add_argument("--max-samples", type=int, default=None,
+                        help="Optional number of samples to run for smoke tests or quick comparisons.")
     parser.add_argument("--trust-remote-code", action=argparse.BooleanOptionalAction, default=None,
                         help="Override trust_remote_code. Defaults to auto for Qwen and Phi models.")
     parser.add_argument("--device", default="cuda", help="Device to run inference")

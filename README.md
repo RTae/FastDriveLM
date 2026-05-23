@@ -162,9 +162,13 @@ Reported metrics follow standard LLM inference conventions:
 
 - `ttft_sec`: time to first token
 - `latency_sec`: end-to-end latency per sample
+- `prefill_throughput_tok_per_sec`: prompt tokens divided by measured prefill time inside the VLM SSD runner
 - `decode_throughput_tok_per_sec`: generated tokens divided by post-first-token decode time
 - `end_to_end_throughput_tok_per_sec`: generated tokens divided by full request latency
-- aggregate summary: average TTFT, average latency, average decode throughput, and total end-to-end throughput across the run
+- `runner_decode_throughput_tok_per_sec`: generated tokens divided by the inner speculate/verify loop time tracked by the VLM SSD runner
+- `avg_target_step_time_ms`: average per-step latency inside the VLM speculate/verify loop
+- `avg_target_verify_time_ms`: average time spent in target verification per step
+- aggregate summary: average TTFT, average latency, average prefill throughput, average decode throughput, average target step time, average target verify time, and total end-to-end throughput across the run
 
 This script uses the current VLM `draft_async` path in the `ssd/` submodule. Right now it supports greedy decoding and processes one request at a time over the dataset.
 
