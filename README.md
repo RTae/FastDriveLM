@@ -139,12 +139,32 @@ Use the dedicated root-level script to run the DriveLM validation split with:
     --output outputs/qwen3vl/infer_results_ssd.json
 ```
 
+To print speed metrics during inference and save them as JSON:
+
+```bash
+.venv/bin/python tools/inference_ssd_vlm.py \
+    --target-model outputs/qwen3vl \
+    --draft-model outputs/qwen3vl_draft \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_ssd.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/infer_results_ssd.metrics.json
+```
+
 Useful options:
 
 - `--max-samples 1` for a smoke test
 - `--max-new-tokens 128` to control output length
 - `--spec-k 4` to control lookahead
 - `--num-gpus 2` for target GPU + draft GPU
+
+Reported metrics follow standard LLM inference conventions:
+
+- `ttft_sec`: time to first token
+- `latency_sec`: end-to-end latency per sample
+- `decode_throughput_tok_per_sec`: generated tokens divided by post-first-token decode time
+- `end_to_end_throughput_tok_per_sec`: generated tokens divided by full request latency
+- aggregate summary: average TTFT, average latency, average decode throughput, and total end-to-end throughput across the run
 
 This script uses the current VLM `draft_async` path in the `ssd/` submodule. Right now it supports greedy decoding and processes one request at a time over the dataset.
 
