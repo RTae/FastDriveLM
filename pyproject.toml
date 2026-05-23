@@ -15,8 +15,8 @@ dependencies = [
     "soundfile==0.13.1",
     "pillow>=11.1.0",
     "scipy>=1.13.1",
-    "torch==2.8.0",
-    "torchvision==0.23.0",
+    "torch==2.11.0",
+    "torchvision==0.26.0",
     "backoff==2.2.1",
     "peft==0.15.1",
     "datasets>=4.8.5",
@@ -26,9 +26,9 @@ dependencies = [
     "rouge-score>=0.1.2",
     "nltk>=3.9.4",
     "pycocoevalcap>=1.2",
-    "flashinfer-python==0.5.2",
+    "flashinfer-python>=0.6.11.post3",
     "tiktoken>=0.13.0",
-    "sgl-kernel==0.3.17.post1",
+    "sglang-kernel>=0.3.21",
     "xxhash>=3.7.0",
 ]
 
