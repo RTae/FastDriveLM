@@ -25,6 +25,9 @@ dependencies = [
     "rouge-score>=0.1.2",
     "nltk>=3.9.4",
     "pycocoevalcap>=1.2",
+    "flashinfer-python>=0.6.11.post3",
+    "tiktoken>=0.13.0",
+    "sgl-kernel>=0.3.21",
 ]
 
 [tool.setuptools.packages.find]
