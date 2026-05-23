@@ -219,7 +219,7 @@ class ModelRunner:
             model_class = Eagle3DraftForCausalLM
         elif hf_config.model_type == 'llama':
             model_class = LlamaForCausalLM
-        elif hf_config.model_type == 'qwen3':
+        elif hf_config.model_type in ('qwen3', 'qwen3_vl_text'):
             model_class = Qwen3ForCausalLM
         else:
             raise ValueError(f"Unsupported model type: {hf_config.model_type}")
@@ -253,7 +253,13 @@ class ModelRunner:
         # Pass tokenizer_path as target_path if it's available (mostly for Eagle draft)
         target_path = getattr(config, 'tokenizer_path', None)
         target_hidden_size = getattr(config, 'd_model_target', None)
-        load_model(self.model, config.model, target_path=target_path, target_hidden_size=target_hidden_size)
+        load_model(
+            self.model,
+            config.model,
+            target_path=target_path,
+            target_hidden_size=target_hidden_size,
+            lora_path=config.lora_path,
+        )
         
         if config.draft_async:  # move this here so we don't get a timeout waiting for draft rank while load_model happens?
             self.async_pg = dist.new_group(ranks=[0, self.draft_rank])

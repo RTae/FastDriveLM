@@ -38,6 +38,8 @@ class Qwen3Attention(nn.Module):
         self.draft_async = draft_async
         self.tp_group = tp_group
         self.tp_size = tp_size
+        if isinstance(rope_scaling, dict) and rope_scaling.get("mrope_interleaved"):
+            rope_scaling = None
 
         self.total_num_heads = num_heads
         self.num_heads = self.total_num_heads // tp_size 
@@ -304,7 +306,7 @@ class Qwen3ForCausalLM(nn.Module):
             tp_group=tp_group,
             tp_size=self.tp_size,
         )
-        if config.tie_word_embeddings:
+        if getattr(config, "tie_word_embeddings", False):
             self.lm_head.weight.data = self.model.embed_tokens.weight.data
         print(f'Finishing Qwen3ForCausalLM init, draft={draft}, speculate={speculate}, spec_k={spec_k}') 
 

@@ -4,9 +4,20 @@ import torch
 from torch import nn
 from safetensors import safe_open
 from tqdm import tqdm
+from ssd.utils.lora import merge_lora_weights
 
 def default_weight_loader(param: nn.Parameter, loaded_weight: torch.Tensor):
     param.data.copy_(loaded_weight)
+
+
+def normalize_weight_name(weight_name: str) -> str:
+    if weight_name.startswith("model.language_model."):
+        return "model." + weight_name[len("model.language_model."):]
+    return weight_name
+
+
+def should_skip_weight(weight_name: str) -> bool:
+    return weight_name.startswith("model.visual.") or weight_name.startswith("visual.")
 
 
 def load_embedding_from_target(model: nn.Module, target_path: str, target_hidden_size: int = None, draft_hidden_size: int = None) -> bool:
@@ -186,24 +197,32 @@ def load_eagle_model(model: nn.Module, path: str, packed_modules_mapping: dict, 
 def load_safetensors_model(model: nn.Module, path: str, packed_modules_mapping: dict):
     """Load model weights from safetensors files"""
     safetensor_files = glob(os.path.join(path, "*.safetensors"))
+    skipped = 0
     for file in tqdm(safetensor_files, desc="Loading model files"):
         with safe_open(file, "pt", "cpu") as f:
             for weight_name in f.keys():
+                loaded_weight_name = weight_name
+                if should_skip_weight(weight_name):
+                    skipped += 1
+                    continue
+                weight_name = normalize_weight_name(weight_name)
                 for k in packed_modules_mapping:
                     if k in weight_name:
                         v, shard_id = packed_modules_mapping[k]
                         param_name = weight_name.replace(k, v)
                         param = model.get_parameter(param_name)
                         weight_loader = getattr(param, "weight_loader")
-                        weight_loader(param, f.get_tensor(weight_name), shard_id)
+                        weight_loader(param, f.get_tensor(loaded_weight_name), shard_id)
                         break
                 else:
                     param = model.get_parameter(weight_name)
                     weight_loader = getattr(param, "weight_loader", default_weight_loader)
-                    weight_loader(param, f.get_tensor(weight_name))
+                    weight_loader(param, f.get_tensor(loaded_weight_name))
+    if skipped:
+        print(f"[load_model] skipped {skipped} non-language VLM weights", flush=True)
 
 
-def load_model(model: nn.Module, path: str, target_path: str = None, target_hidden_size: int = None):
+def load_model(model: nn.Module, path: str, target_path: str = None, target_hidden_size: int = None, lora_path: str | None = None):
     print(f"[load_model] loading model from {path}")
     packed_modules_mapping = getattr(model, "packed_modules_mapping", {})
     
@@ -214,5 +233,9 @@ def load_model(model: nn.Module, path: str, target_path: str = None, target_hidd
         load_eagle_model(model, path, packed_modules_mapping, target_path=target_path, target_hidden_size=target_hidden_size)
     else:
         load_safetensors_model(model, path, packed_modules_mapping)
+
+    if lora_path:
+        print(f"[load_model] merging LoRA adapter from {lora_path}", flush=True)
+        merge_lora_weights(model, lora_path, packed_modules_mapping)
 
     print(f"[load_model] finished loading model from {path}")
