@@ -4,6 +4,7 @@ import atexit
 from dataclasses import dataclass
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from time import perf_counter
 from typing import Any, Mapping
 
 import torch
@@ -163,6 +164,10 @@ class MultimodalWorker:
                     inputs[key] = value.to(device=self.device)
         return inputs
 
+    def measure_prompt_tokens(self, prompt: MultimodalPrompt) -> int:
+        inputs = self._prepare_inputs(prompt)
+        return int(inputs["input_ids"].shape[1])
+
     @torch.inference_mode()
     def prefill(self, prompt: MultimodalPrompt):
         self.state.prompt = prompt
@@ -255,20 +260,31 @@ class MultimodalParallelRunner:
         params = sampling_params[0]
         assert params.temperature == 0.0, "The first VLM SSD implementation currently supports greedy decoding only"
 
+        prompt_tokens = self.target.measure_prompt_tokens(prompt)
+
+        prefill_started = perf_counter()
         target_prefill_future = self.executor.submit(self.target.prefill, prompt)
         draft_prefill_future = self.executor.submit(self.draft.prefill, prompt)
         target_prefill = target_prefill_future.result()
         draft_prefill_future.result()
+        prefill_elapsed = perf_counter() - prefill_started
+
+        self.metrics["prefill_total_tokens"] += prompt_tokens
+        self.metrics["prefill_total_time"] += prefill_elapsed
+
         recovery_token = target_prefill["next_token"]
         accepted: list[int] = []
 
         while len(accepted) < params.max_new_tokens:
+            step_started = perf_counter()
             speculate_result = self.draft.speculate(
                 recovery_token=recovery_token,
                 lookahead=self.config.speculate_k,
                 temperature=params.draft_temperature or params.temperature,
             )
+            verify_started = perf_counter()
             verify_result = self.target.verify(speculations=speculate_result["speculations"])
+            verify_elapsed = perf_counter() - verify_started
 
             logits_p = verify_result["logits_p"].unsqueeze(0)
             logits_q = speculate_result["logits_q"].unsqueeze(0)
@@ -288,6 +304,13 @@ class MultimodalParallelRunner:
             self.target.accept(accepted_suffix=accepted_suffix)
             self.draft.accept(accepted_suffix=accepted_suffix)
             accepted.extend(accepted_suffix)
+            step_elapsed = perf_counter() - step_started
+
+            self.metrics["decode_total_tokens"] += len(accepted_suffix)
+            self.metrics["decode_total_time"] += step_elapsed
+            self.metrics["target_step_times"].append(step_elapsed)
+            self.metrics["target_verify_times"].append(verify_elapsed)
+
             if stream_callback and accepted_suffix:
                 stream_callback(0, accepted_suffix)
             if not params.ignore_eos and self.eos_token_id is not None and recovery_token == self.eos_token_id:

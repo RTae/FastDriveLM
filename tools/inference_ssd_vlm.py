@@ -74,8 +74,11 @@ def _build_metrics_summary(per_sample_metrics: list[dict]) -> dict:
             "total_wall_time_sec": 0.0,
             "avg_ttft_sec": 0.0,
             "avg_latency_sec": 0.0,
+            "avg_prefill_throughput_tok_per_sec": 0.0,
             "avg_decode_throughput_tok_per_sec": 0.0,
             "end_to_end_throughput_tok_per_sec": 0.0,
+            "avg_target_step_time_ms": 0.0,
+            "avg_target_verify_time_ms": 0.0,
         }
 
     total_output_tokens = sum(item["output_tokens"] for item in per_sample_metrics)
@@ -86,8 +89,11 @@ def _build_metrics_summary(per_sample_metrics: list[dict]) -> dict:
         "total_wall_time_sec": total_wall_time,
         "avg_ttft_sec": sum(item["ttft_sec"] for item in per_sample_metrics) / len(per_sample_metrics),
         "avg_latency_sec": sum(item["latency_sec"] for item in per_sample_metrics) / len(per_sample_metrics),
+        "avg_prefill_throughput_tok_per_sec": sum(item["prefill_throughput_tok_per_sec"] for item in per_sample_metrics) / len(per_sample_metrics),
         "avg_decode_throughput_tok_per_sec": sum(item["decode_throughput_tok_per_sec"] for item in per_sample_metrics) / len(per_sample_metrics),
         "end_to_end_throughput_tok_per_sec": _safe_divide(total_output_tokens, total_wall_time),
+        "avg_target_step_time_ms": sum(item["avg_target_step_time_ms"] for item in per_sample_metrics) / len(per_sample_metrics),
+        "avg_target_verify_time_ms": sum(item["avg_target_verify_time_ms"] for item in per_sample_metrics) / len(per_sample_metrics),
     }
 
 
@@ -127,7 +133,7 @@ def main():
                 first_token_time[0] = time.perf_counter()
 
         t0 = time.perf_counter()
-        outputs, _ = llm.generate(
+        outputs, metrics = llm.generate(
             [prompt],
             [SamplingParams(temperature=0.0, max_new_tokens=args.max_new_tokens)],
             use_tqdm=False,
@@ -145,8 +151,14 @@ def main():
             "ttft_sec": ttft_sec,
             "latency_sec": latency_sec,
             "decode_time_sec": decode_time_sec,
+            "prefill_tokens": metrics.get("prefill_total_tokens", 0),
+            "prefill_time_sec": metrics.get("prefill_total_time", 0.0),
+            "prefill_throughput_tok_per_sec": _safe_divide(metrics.get("prefill_total_tokens", 0), metrics.get("prefill_total_time", 0.0)),
             "decode_throughput_tok_per_sec": _safe_divide(output_tokens, decode_time_sec),
             "end_to_end_throughput_tok_per_sec": _safe_divide(output_tokens, latency_sec),
+            "runner_decode_throughput_tok_per_sec": _safe_divide(metrics.get("decode_total_tokens", 0), metrics.get("decode_total_time", 0.0)),
+            "avg_target_step_time_ms": _safe_divide(sum(metrics.get("target_step_times", [])) * 1000.0, len(metrics.get("target_step_times", []))),
+            "avg_target_verify_time_ms": _safe_divide(sum(metrics.get("target_verify_times", [])) * 1000.0, len(metrics.get("target_verify_times", []))),
         }
         per_sample_metrics.append(sample_metrics)
 
@@ -163,7 +175,10 @@ def main():
         if args.metrics:
             print(
                 f"[metrics] id={sample_id} tok={output_tokens} latency={latency_sec:.2f}s "
-                f"ttft={ttft_sec:.2f}s decode_tps={sample_metrics['decode_throughput_tok_per_sec']:.2f} "
+                f"ttft={ttft_sec:.2f}s prefill_tps={sample_metrics['prefill_throughput_tok_per_sec']:.2f} "
+                f"decode_tps={sample_metrics['decode_throughput_tok_per_sec']:.2f} "
+                f"runner_decode_tps={sample_metrics['runner_decode_throughput_tok_per_sec']:.2f} "
+                f"step_ms={sample_metrics['avg_target_step_time_ms']:.2f} verify_ms={sample_metrics['avg_target_verify_time_ms']:.2f} "
                 f"e2e_tps={sample_metrics['end_to_end_throughput_tok_per_sec']:.2f}",
                 flush=True,
             )
@@ -173,8 +188,9 @@ def main():
         print(
             f"[metrics] samples={summary['num_samples']} total_tokens={summary['total_output_tokens']} "
             f"total_time={summary['total_wall_time_sec']:.2f}s avg_ttft={summary['avg_ttft_sec']:.2f}s "
-            f"avg_latency={summary['avg_latency_sec']:.2f}s avg_decode_tps={summary['avg_decode_throughput_tok_per_sec']:.2f} "
-            f"e2e_tps={summary['end_to_end_throughput_tok_per_sec']:.2f}",
+            f"avg_latency={summary['avg_latency_sec']:.2f}s avg_prefill_tps={summary['avg_prefill_throughput_tok_per_sec']:.2f} "
+            f"avg_decode_tps={summary['avg_decode_throughput_tok_per_sec']:.2f} avg_step_ms={summary['avg_target_step_time_ms']:.2f} "
+            f"avg_verify_ms={summary['avg_target_verify_time_ms']:.2f} e2e_tps={summary['end_to_end_throughput_tok_per_sec']:.2f}",
             flush=True,
         )
 
