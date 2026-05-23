@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import ssd.paths  # noqa: F401 — sets TORCH_CUDA_ARCH_LIST before flashinfer import
 
@@ -5,13 +7,7 @@ from ssd.config import Config
 from ssd.sampling_params import SamplingParams
 from ssd.utils.misc import infer_model_family
 from ssd.engine.sequence import Sequence
-from ssd.engine.scheduler import Scheduler
-from ssd.engine.model_runner import ModelRunner
-from ssd.engine.draft_runner import DraftRunner
-from ssd.engine.speculator_async import SpeculatorAsync
-from ssd.engine.speculator_sync import SpeculatorSync
-from ssd.engine.step import InferenceStep, AutoRegressiveStep, SpecDecodeStep
-from ssd.engine.verifier import Verifier
+from ssd.engine.multimodal_runner import MultimodalRunner
 
 import atexit
 from dataclasses import fields
@@ -43,7 +39,25 @@ class LLMEngine:
         config_kwargs = {k: v for k, v in kwargs.items() if k in config_fields}
         config = Config(model, **config_kwargs)
         self.config = config
+
+        if config.is_multimodal:
+            self.ps = []
+            self.events = []
+            self.draft_ps = None
+            self.draft_cfg = None
+            self.multimodal_runner = MultimodalRunner(config, METRICS)
+            self.tokenizer = self.multimodal_runner.tokenizer
+            self.scheduler = None
+            self.model_runner = None
+            self._exiting = False
+            atexit.register(lambda: self.exit(hard=True))
+            return
+
         Sequence.block_size = config.kvcache_block_size 
+
+        from ssd.engine.scheduler import Scheduler
+        from ssd.engine.model_runner import ModelRunner
+        from ssd.engine.draft_runner import DraftRunner
 
         assert config.kvcache_block_size >= (
             2 * config.speculate_k + 2), "ERROR: support for block size < 2*k+2 is not implemented"
@@ -128,6 +142,8 @@ class LLMEngine:
         if getattr(self, "_exiting", False):
             return
         self._exiting = True
+        if self.config.is_multimodal:
+            return
         # 1) If async, tell draft to quit before tearing down anything
         try:
             if self.config.speculate and self.config.draft_async:
@@ -184,6 +200,7 @@ class LLMEngine:
             os._exit(0)
 
     def add_request(self, prompt: str | list[int], sampling_params: SamplingParams):
+        assert not self.config.is_multimodal, "add_request is only available on the text-only SSD engine path"
         if isinstance(prompt, str):
             prompt = self.tokenizer.encode(prompt)
         seq = Sequence(prompt, sampling_params)
@@ -270,6 +287,12 @@ class LLMEngine:
                         f"[metrics] Avg Tokens per step on Cache Hit: N/A (no cache hits)", flush=True)
 
     def create_inference_step(self, config: Config) -> InferenceStep:
+        assert not config.is_multimodal, "InferenceStep is only used for text-only SSD execution"
+        from ssd.engine.speculator_async import SpeculatorAsync
+        from ssd.engine.speculator_sync import SpeculatorSync
+        from ssd.engine.step import AutoRegressiveStep, SpecDecodeStep
+        from ssd.engine.verifier import Verifier
+
         if config.speculate:
             if config.draft_async:
                 speculator = SpeculatorAsync(
@@ -327,6 +350,9 @@ class LLMEngine:
     ) -> list[str]:
         for k in METRICS:
             METRICS[k] = [] if isinstance(METRICS[k], list) else 0
+
+        if self.config.is_multimodal:
+            return self.multimodal_runner.generate(prompts, sampling_params, use_tqdm=use_tqdm, stream_callback=stream_callback)
 
         if use_tqdm:
             pbar = tqdm(total=len(prompts),

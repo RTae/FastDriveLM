@@ -75,6 +75,54 @@ after running this script, the data will be organized as follows:
 
 ## Run inference
 
+### Run Qwen3-VL with SSD-style target/draft setup
+
+For the multimodal speculative path in the `ssd/` submodule, use:
+
+- target model: `outputs/qwen3vl`
+- draft model: `outputs/qwen3vl_draft`
+
+These are treated as LoRA adapter directories. The SSD multimodal path reads the base model from each `adapter_config.json` and resolves:
+
+- `outputs/qwen3vl` -> `base_models/Qwen/Qwen3-VL-8B-Instruct`
+- `outputs/qwen3vl_draft` -> `base_models/Qwen/Qwen3-VL-2B-Instruct`
+
+Run from the repo root so the workspace `.venv` and the `ssd/` package subpath are both visible:
+
+```bash
+PYTHONPATH=$PWD/ssd \
+SSD_HF_CACHE=$PWD/base_models \
+SSD_DATASET_DIR=$PWD/datasets \
+.venv/bin/python - <<'PY'
+from datasets import load_from_disk
+from ssd import LLM, SamplingParams
+
+sample = load_from_disk('datasets/DriveLM_nuScenes/split/val')[0]
+question = sample['conversations'][0]['value']
+images = sample['image_paths']
+
+llm = LLM(
+    'outputs/qwen3vl',
+    speculate=True,
+    draft='outputs/qwen3vl_draft',
+    max_model_len=2048,
+)
+
+outputs, _ = llm.generate(
+    [{'text': question, 'images': images}],
+    [SamplingParams(temperature=0.0, max_new_tokens=80)],
+    use_tqdm=False,
+)
+print(outputs[0]['text'])
+PY
+```
+
+Notes:
+
+- This uses the VLM target/draft pair you trained.
+- This is currently sync speculative decoding through the HuggingFace multimodal generation path.
+- The custom async SSD kernel path is still text-only; `draft_async=True` is not supported for Qwen3-VL yet.
+
 Use `--model-path` as the single model directory argument.
 
 `--model-path` supports:
