@@ -3,6 +3,7 @@ import inspect
 from functools import partial
 from pathlib import Path
 import json
+import time
 
 import torch
 from datasets import load_from_disk
@@ -16,6 +17,7 @@ from transformers import (
     AutoProcessor,
     GenerationConfig,
 )
+from transformers.generation.stopping_criteria import StoppingCriteria, StoppingCriteriaList
 
 from drivevlms.build import build_collate_fn
 
@@ -26,6 +28,51 @@ TORCH_DTYPES = {
     "bfloat16": torch.bfloat16,
     "float32": torch.float32,
 }
+
+
+def _safe_divide(numerator: float, denominator: float) -> float:
+    return numerator / denominator if denominator > 0 else 0.0
+
+
+def _build_metrics_summary(per_sample_metrics: list[dict]) -> dict:
+    if not per_sample_metrics:
+        return {
+            "num_samples": 0,
+            "total_output_tokens": 0,
+            "total_wall_time_sec": 0.0,
+            "avg_ttft_sec": 0.0,
+            "avg_latency_sec": 0.0,
+            "avg_prefill_throughput_tok_per_sec": 0.0,
+            "avg_decode_throughput_tok_per_sec": 0.0,
+            "end_to_end_throughput_tok_per_sec": 0.0,
+            "avg_target_step_time_ms": 0.0,
+            "avg_target_verify_time_ms": 0.0,
+        }
+
+    total_output_tokens = sum(item["output_tokens"] for item in per_sample_metrics)
+    total_wall_time = sum(item["latency_sec"] for item in per_sample_metrics)
+    return {
+        "num_samples": len(per_sample_metrics),
+        "total_output_tokens": total_output_tokens,
+        "total_wall_time_sec": total_wall_time,
+        "avg_ttft_sec": sum(item["ttft_sec"] for item in per_sample_metrics) / len(per_sample_metrics),
+        "avg_latency_sec": sum(item["latency_sec"] for item in per_sample_metrics) / len(per_sample_metrics),
+        "avg_prefill_throughput_tok_per_sec": sum(item["prefill_throughput_tok_per_sec"] for item in per_sample_metrics) / len(per_sample_metrics),
+        "avg_decode_throughput_tok_per_sec": sum(item["decode_throughput_tok_per_sec"] for item in per_sample_metrics) / len(per_sample_metrics),
+        "end_to_end_throughput_tok_per_sec": _safe_divide(total_output_tokens, total_wall_time),
+        "avg_target_step_time_ms": sum(item["avg_target_step_time_ms"] for item in per_sample_metrics) / len(per_sample_metrics),
+        "avg_target_verify_time_ms": sum(item["avg_target_verify_time_ms"] for item in per_sample_metrics) / len(per_sample_metrics),
+    }
+
+
+class FirstTokenTimingCriteria(StoppingCriteria):
+    def __init__(self):
+        self.first_token_time = None
+
+    def __call__(self, input_ids, scores, **kwargs):
+        if self.first_token_time is None:
+            self.first_token_time = time.perf_counter()
+        return False
 
 
 def validate_model_path(model_path):
@@ -235,18 +282,44 @@ def main(args):
 
     def infer(inputs):
         input_len = inputs["input_ids"].shape[-1]
+        token_timing = FirstTokenTimingCriteria()
+        stopping_criteria = StoppingCriteriaList([token_timing])
+        started = time.perf_counter()
         output = model.generate(
             **inputs,
             generation_config=effective_generation_config,
+            stopping_criteria=stopping_criteria,
         )
+        finished = time.perf_counter()
         output = output[:, input_len:]
         results = processor.batch_decode(output, skip_special_tokens=True)
-        return results
+        output_tokens = int(output.shape[-1])
+        ttft_sec = 0.0
+        if output_tokens > 0 and token_timing.first_token_time is not None:
+            ttft_sec = token_timing.first_token_time - started
+        latency_sec = finished - started
+        decode_time_sec = max(latency_sec - ttft_sec, 0.0)
+        metrics = {
+            "output_tokens": output_tokens,
+            "ttft_sec": ttft_sec,
+            "latency_sec": latency_sec,
+            "decode_time_sec": decode_time_sec,
+            "prefill_tokens": int(input_len),
+            "prefill_time_sec": ttft_sec,
+            "prefill_throughput_tok_per_sec": _safe_divide(input_len, ttft_sec),
+            "decode_throughput_tok_per_sec": _safe_divide(output_tokens, decode_time_sec),
+            "end_to_end_throughput_tok_per_sec": _safe_divide(output_tokens, latency_sec),
+            "runner_decode_throughput_tok_per_sec": _safe_divide(output_tokens, decode_time_sec),
+            "avg_target_step_time_ms": _safe_divide(decode_time_sec * 1000.0, output_tokens),
+            "avg_target_verify_time_ms": 0.0,
+        }
+        return results, metrics
 
     def flatten(x):
         return x[0] if isinstance(x, list) else x
     
     data_dict = []
+    per_sample_metrics = []
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with torch.no_grad():
@@ -254,13 +327,46 @@ def main(args):
         for batch in tqdm(dataloader):
             cnt += 1
             inputs, question, ids = batch
-            results = infer(inputs.to(args.device))
+            results, metrics = infer(inputs.to(args.device))
+            sample_metrics = {
+                "id": flatten(ids),
+                **metrics,
+            }
+            per_sample_metrics.append(sample_metrics)
             data_dict.append(
                 {'id': flatten(ids), 'question': flatten(question), 'answer': flatten(results)}
             )
 
             with output_path.open("w", encoding="utf-8") as f:
                 json.dump(data_dict, f, indent=4)
+
+            if args.metrics:
+                print(
+                    f"[metrics] id={sample_metrics['id']} tok={sample_metrics['output_tokens']} latency={sample_metrics['latency_sec']:.2f}s "
+                    f"ttft={sample_metrics['ttft_sec']:.2f}s prefill_tps={sample_metrics['prefill_throughput_tok_per_sec']:.2f} "
+                    f"decode_tps={sample_metrics['decode_throughput_tok_per_sec']:.2f} "
+                    f"runner_decode_tps={sample_metrics['runner_decode_throughput_tok_per_sec']:.2f} "
+                    f"step_ms={sample_metrics['avg_target_step_time_ms']:.2f} verify_ms={sample_metrics['avg_target_verify_time_ms']:.2f} "
+                    f"e2e_tps={sample_metrics['end_to_end_throughput_tok_per_sec']:.2f}",
+                    flush=True,
+                )
+
+    summary = _build_metrics_summary(per_sample_metrics)
+    if args.metrics:
+        print(
+            f"[metrics] samples={summary['num_samples']} total_tokens={summary['total_output_tokens']} "
+            f"total_time={summary['total_wall_time_sec']:.2f}s avg_ttft={summary['avg_ttft_sec']:.2f}s "
+            f"avg_latency={summary['avg_latency_sec']:.2f}s avg_prefill_tps={summary['avg_prefill_throughput_tok_per_sec']:.2f} "
+            f"avg_decode_tps={summary['avg_decode_throughput_tok_per_sec']:.2f} avg_step_ms={summary['avg_target_step_time_ms']:.2f} "
+            f"avg_verify_ms={summary['avg_target_verify_time_ms']:.2f} e2e_tps={summary['end_to_end_throughput_tok_per_sec']:.2f}",
+            flush=True,
+        )
+
+    if args.metrics_output:
+        metrics_output_path = Path(args.metrics_output)
+        metrics_output_path.parent.mkdir(parents=True, exist_ok=True)
+        with metrics_output_path.open("w", encoding="utf-8") as f:
+            json.dump({"summary": summary, "samples": per_sample_metrics}, f, indent=2)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='DriveLM Inference')
@@ -288,6 +394,10 @@ def parse_args():
                         help="Maximum number of tokens to generate per sample.")
     parser.add_argument("--max-samples", type=int, default=None,
                         help="Optional number of samples to run for smoke tests or quick comparisons.")
+    parser.add_argument("--metrics", action="store_true",
+                        help="Print per-sample and aggregate speed metrics.")
+    parser.add_argument("--metrics-output", type=str, default=None,
+                        help="Optional JSON path for aggregate and per-sample metrics.")
     parser.add_argument("--trust-remote-code", action=argparse.BooleanOptionalAction, default=None,
                         help="Override trust_remote_code. Defaults to auto for Qwen and Phi models.")
     parser.add_argument("--device", default="cuda", help="Device to run inference")

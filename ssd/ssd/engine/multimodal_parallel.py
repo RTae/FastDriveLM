@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import atexit
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, field
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from time import perf_counter
@@ -111,7 +112,10 @@ def _select_device(index: int) -> torch.device:
 @dataclass
 class WorkerState:
     prompt: MultimodalPrompt | None = None
-    accepted_token_ids: list[int] | None = None
+    accepted_token_ids: list[int] = field(default_factory=list)
+    prompt_inputs: dict[str, Any] | None = None
+    prompt_length: int = 0
+    committed_cache: Any | None = None
 
 
 class MultimodalWorker:
@@ -137,7 +141,7 @@ class MultimodalWorker:
         self.model.eval()
         self.tokenizer = self.processor.tokenizer
 
-    def _prepare_inputs(self, prompt: MultimodalPrompt, extra_token_ids: list[int] | None = None):
+    def _prepare_inputs(self, prompt: MultimodalPrompt):
         text, images = _normalize_prompt(self.processor, prompt)
         processor_kwargs = {
             "text": [text],
@@ -147,15 +151,6 @@ class MultimodalWorker:
         if images:
             processor_kwargs["images"] = images
         inputs = self.processor(**processor_kwargs)
-        if extra_token_ids:
-            extra = torch.tensor([extra_token_ids], dtype=inputs["input_ids"].dtype)
-            inputs["input_ids"] = torch.cat([inputs["input_ids"], extra], dim=1)
-            if "attention_mask" in inputs:
-                attn_extra = torch.ones((1, len(extra_token_ids)), dtype=inputs["attention_mask"].dtype)
-                inputs["attention_mask"] = torch.cat([inputs["attention_mask"], attn_extra], dim=1)
-            if "mm_token_type_ids" in inputs:
-                mm_extra = torch.zeros((1, len(extra_token_ids)), dtype=inputs["mm_token_type_ids"].dtype)
-                inputs["mm_token_type_ids"] = torch.cat([inputs["mm_token_type_ids"], mm_extra], dim=1)
         for key, value in inputs.items():
             if torch.is_tensor(value):
                 if torch.is_floating_point(value) and self.dtype is not None:
@@ -164,16 +159,67 @@ class MultimodalWorker:
                     inputs[key] = value.to(device=self.device)
         return inputs
 
+    def _prepare_prompt_state(self, prompt: MultimodalPrompt):
+        inputs = self._prepare_inputs(prompt)
+        self.state.prompt = prompt
+        self.state.accepted_token_ids = []
+        self.state.prompt_inputs = inputs
+        self.state.prompt_length = int(inputs["input_ids"].shape[1])
+        self.state.committed_cache = None
+        return inputs
+
+    def _build_attention_mask(self, total_length: int):
+        assert self.state.prompt_inputs is not None
+        attention_mask = self.state.prompt_inputs.get("attention_mask")
+        if attention_mask is None:
+            return None
+        base_length = int(attention_mask.shape[1])
+        if total_length == base_length:
+            return attention_mask
+        extra_length = total_length - base_length
+        extra_mask = torch.ones((1, extra_length), dtype=attention_mask.dtype, device=self.device)
+        return torch.cat([attention_mask, extra_mask], dim=1)
+
+    def _build_mm_token_type_ids(self, total_length: int):
+        assert self.state.prompt_inputs is not None
+        mm_token_type_ids = self.state.prompt_inputs.get("mm_token_type_ids")
+        if mm_token_type_ids is None:
+            return None
+        base_length = int(mm_token_type_ids.shape[1])
+        if total_length == base_length:
+            return mm_token_type_ids
+        extra_length = total_length - base_length
+        extra_mm = torch.zeros((1, extra_length), dtype=mm_token_type_ids.dtype, device=self.device)
+        return torch.cat([mm_token_type_ids, extra_mm], dim=1)
+
+    def _cached_forward(self, token_ids: list[int], past_key_values, total_prefix_length: int, logits_to_keep: int):
+        assert self.state.prompt_inputs is not None
+        input_dtype = self.state.prompt_inputs["input_ids"].dtype
+        input_ids = torch.tensor([token_ids], dtype=input_dtype, device=self.device)
+        total_length = total_prefix_length + len(token_ids)
+        model_inputs = self.model.prepare_inputs_for_generation(
+            input_ids,
+            past_key_values=past_key_values,
+            attention_mask=self._build_attention_mask(total_length),
+            mm_token_type_ids=self._build_mm_token_type_ids(total_length),
+            image_grid_thw=self.state.prompt_inputs.get("image_grid_thw"),
+            video_grid_thw=self.state.prompt_inputs.get("video_grid_thw"),
+            use_cache=True,
+            is_first_iteration=False,
+        )
+        return self.model(**model_inputs, logits_to_keep=logits_to_keep)
+
     def measure_prompt_tokens(self, prompt: MultimodalPrompt) -> int:
+        if self.state.prompt == prompt and self.state.prompt_inputs is not None:
+            return self.state.prompt_length
         inputs = self._prepare_inputs(prompt)
         return int(inputs["input_ids"].shape[1])
 
     @torch.inference_mode()
     def prefill(self, prompt: MultimodalPrompt):
-        self.state.prompt = prompt
-        self.state.accepted_token_ids = []
-        inputs = self._prepare_inputs(prompt)
-        outputs = self.model(**inputs)
+        inputs = self._prepare_prompt_state(prompt)
+        outputs = self.model(**inputs, use_cache=True, logits_to_keep=1)
+        self.state.committed_cache = outputs.past_key_values
         logits = outputs.logits[:, -1, :]
         next_token = int(logits.argmax(dim=-1).item())
         return {"next_token": next_token}
@@ -181,12 +227,20 @@ class MultimodalWorker:
     @torch.inference_mode()
     def speculate(self, recovery_token: int, lookahead: int, temperature: float = 0.0):
         assert self.state.prompt is not None
-        prefix = list(self.state.accepted_token_ids or []) + [recovery_token]
         spec_tokens: list[int] = []
         logits_q = []
+        branch_cache = deepcopy(self.state.committed_cache)
+        prefix_length = self.state.prompt_length + len(self.state.accepted_token_ids)
+        next_input_token = recovery_token
         for _ in range(lookahead):
-            inputs = self._prepare_inputs(self.state.prompt, prefix + spec_tokens)
-            outputs = self.model(**inputs)
+            outputs = self._cached_forward(
+                token_ids=[next_input_token],
+                past_key_values=branch_cache,
+                total_prefix_length=prefix_length,
+                logits_to_keep=1,
+            )
+            branch_cache = outputs.past_key_values
+            prefix_length += 1
             logits = outputs.logits[:, -1, :]
             logits_q.append(logits[0].detach().cpu())
             if temperature > 0:
@@ -195,6 +249,7 @@ class MultimodalWorker:
             else:
                 next_token = int(logits.argmax(dim=-1).item())
             spec_tokens.append(next_token)
+            next_input_token = next_token
         return {
             "speculations": [recovery_token] + spec_tokens,
             "logits_q": torch.stack(logits_q, dim=0),
@@ -203,20 +258,30 @@ class MultimodalWorker:
     @torch.inference_mode()
     def verify(self, speculations: list[int]):
         assert self.state.prompt is not None
-        inputs = self._prepare_inputs(self.state.prompt, list(self.state.accepted_token_ids or []) + speculations)
-        outputs = self.model(**inputs)
-        k_plus_1 = len(speculations)
-        logits = outputs.logits[0, -k_plus_1:, :].detach().cpu()
+        outputs = self._cached_forward(
+            token_ids=speculations,
+            past_key_values=deepcopy(self.state.committed_cache),
+            total_prefix_length=self.state.prompt_length + len(self.state.accepted_token_ids),
+            logits_to_keep=len(speculations),
+        )
+        logits = outputs.logits[0].detach().cpu()
         return {"logits_p": logits}
 
     def accept(self, accepted_suffix: list[int]):
-        if self.state.accepted_token_ids is None:
-            self.state.accepted_token_ids = []
+        if not accepted_suffix:
+            return {"accepted_len": len(self.state.accepted_token_ids)}
+        outputs = self._cached_forward(
+            token_ids=accepted_suffix,
+            past_key_values=self.state.committed_cache,
+            total_prefix_length=self.state.prompt_length + len(self.state.accepted_token_ids),
+            logits_to_keep=1,
+        )
+        self.state.committed_cache = outputs.past_key_values
         self.state.accepted_token_ids.extend(accepted_suffix)
         return {"accepted_len": len(self.state.accepted_token_ids)}
 
     def reset(self):
-        self.state = WorkerState(prompt=None, accepted_token_ids=[])
+        self.state = WorkerState(prompt=None)
         return {"ok": True}
 
 
