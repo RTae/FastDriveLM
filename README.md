@@ -93,7 +93,7 @@ Run from the repo root so the workspace `.venv` and the `ssd/` package subpath a
 PYTHONPATH=$PWD/ssd \
 SSD_HF_CACHE=$PWD/base_models \
 SSD_DATASET_DIR=$PWD/datasets \
-.venv/bin/python - <<'PY'
+python - <<'PY'
 from datasets import load_from_disk
 from ssd import LLM, SamplingParams
 
@@ -132,7 +132,7 @@ Use the dedicated root-level script to run the DriveLM validation split with:
 - draft: `outputs/qwen3vl_draft`
 
 ```bash
-.venv/bin/python tools/inference_ssd_vlm.py \
+python tools/inference_ssd_vlm.py \
     --target-model outputs/qwen3vl \
     --draft-model outputs/qwen3vl_draft \
     --data datasets/DriveLM_nuScenes/split/val \
@@ -142,7 +142,7 @@ Use the dedicated root-level script to run the DriveLM validation split with:
 To print speed metrics during inference and save them as JSON:
 
 ```bash
-.venv/bin/python tools/inference_ssd_vlm.py \
+python tools/inference_ssd_vlm.py \
     --target-model outputs/qwen3vl \
     --draft-model outputs/qwen3vl_draft \
     --data datasets/DriveLM_nuScenes/split/val \
