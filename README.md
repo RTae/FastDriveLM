@@ -120,8 +120,33 @@ PY
 Notes:
 
 - This uses the VLM target/draft pair you trained.
-- This is currently sync speculative decoding through the HuggingFace multimodal generation path.
-- The custom async SSD kernel path is still text-only; `draft_async=True` is not supported for Qwen3-VL yet.
+- `speculate=True` with `draft='outputs/qwen3vl_draft'` uses the target/draft VLM pair.
+- `draft_async=True` now selects the first GPU-split VLM SSD path, with target on one GPU and draft on another.
+- The current VLM SSD path is still an early implementation: greedy decoding, one request at a time, and Python/HuggingFace-based speculate/verify rather than the full optimized text-only kernel stack.
+
+### Run validation-set inference with the VLM SSD path
+
+Use the dedicated root-level script to run the DriveLM validation split with:
+
+- target: `outputs/qwen3vl`
+- draft: `outputs/qwen3vl_draft`
+
+```bash
+.venv/bin/python tools/inference_ssd_vlm.py \
+    --target-model outputs/qwen3vl \
+    --draft-model outputs/qwen3vl_draft \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_ssd.json
+```
+
+Useful options:
+
+- `--max-samples 1` for a smoke test
+- `--max-new-tokens 128` to control output length
+- `--spec-k 4` to control lookahead
+- `--num-gpus 2` for target GPU + draft GPU
+
+This script uses the current VLM `draft_async` path in the `ssd/` submodule. Right now it supports greedy decoding and processes one request at a time over the dataset.
 
 Use `--model-path` as the single model directory argument.
 
