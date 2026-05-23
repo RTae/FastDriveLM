@@ -176,7 +176,9 @@ class Config:
 
         if self.is_multimodal:
             assert not self.use_eagle, "ERROR: EAGLE is only implemented for text-only Llama in this engine"
-            assert not self.draft_async, "ERROR: multimodal Qwen-VL does not support async SSD yet; use speculate=True with a draft model for sync speculative decoding"
+            if self.draft_async:
+                assert self.speculate, "ERROR: multimodal draft_async requires speculate=True"
+                assert self.num_gpus >= 2, "ERROR: multimodal draft_async requires at least 2 GPUs"
             if self.speculate:
                 self.resolved_draft_model_path, self.resolved_draft_base_model_path, self.vlm_draft_adapter_path = resolve_model_artifacts(
                     self.draft)

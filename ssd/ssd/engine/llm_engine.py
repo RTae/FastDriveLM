@@ -8,6 +8,7 @@ from ssd.sampling_params import SamplingParams
 from ssd.utils.misc import infer_model_family
 from ssd.engine.sequence import Sequence
 from ssd.engine.multimodal_runner import MultimodalRunner
+from ssd.engine.multimodal_parallel import MultimodalParallelRunner
 
 import atexit
 from dataclasses import fields
@@ -45,7 +46,10 @@ class LLMEngine:
             self.events = []
             self.draft_ps = None
             self.draft_cfg = None
-            self.multimodal_runner = MultimodalRunner(config, METRICS)
+            if config.draft_async:
+                self.multimodal_runner = MultimodalParallelRunner(config, METRICS)
+            else:
+                self.multimodal_runner = MultimodalRunner(config, METRICS)
             self.tokenizer = self.multimodal_runner.tokenizer
             self.scheduler = None
             self.model_runner = None
