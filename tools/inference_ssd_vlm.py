@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from datasets import load_from_disk
+from PIL import Image
 from tqdm import tqdm
 
 
@@ -22,7 +23,11 @@ _ensure_env_defaults()
 if str(SSD_ROOT) not in sys.path:
     sys.path.insert(0, str(SSD_ROOT))
 
-from ssd import LLM, SamplingParams  # noqa: E402
+from ssd import Config, SamplingParams  # noqa: E402
+from ssd.engine.llm_engine import LLMEngine  # noqa: E402
+
+
+IMAGE_PLACEHOLDER = "<|vision_start|><|image_pad|><|vision_end|>"
 
 
 def _resolve_image_path(path: str) -> str:
@@ -35,14 +40,36 @@ def _resolve_image_path(path: str) -> str:
     return str(image_path)
 
 
-def _sample_to_prompt(sample: dict) -> tuple[dict, str, str]:
+def _load_image(path: str) -> Image.Image:
+    return Image.open(path).convert("RGB")
+
+
+def _resolve_model_and_lora(model_or_adapter: str) -> tuple[str, str | None]:
+    path = Path(model_or_adapter)
+    if not path.is_absolute():
+        path = (REPO_ROOT / path).resolve()
+
+    adapter_config_path = path / "adapter_config.json"
+    if adapter_config_path.exists():
+        with adapter_config_path.open("r", encoding="utf-8") as f:
+            adapter_config = json.load(f)
+        base_model = adapter_config.get("base_model_name_or_path")
+        if not base_model:
+            raise ValueError(f"LoRA adapter is missing base_model_name_or_path: {adapter_config_path}")
+        base_path = Path(base_model)
+        if not base_path.is_absolute():
+            base_path = (REPO_ROOT / base_path).resolve()
+        return str(base_path), str(path)
+
+    return str(path), None
+
+
+def _sample_to_prompt(sample: dict) -> tuple[str, list[Image.Image], str, str]:
     question = sample["conversations"][0]["value"]
-    images = [_resolve_image_path(path) for path in sample["image_paths"]]
-    prompt = {
-        "text": question,
-        "images": images,
-    }
-    return prompt, question, sample["id"]
+    image_paths = [_resolve_image_path(path) for path in sample["image_paths"]]
+    images = [_load_image(path) for path in image_paths]
+    prompt = f"{IMAGE_PLACEHOLDER * len(images)}{question}"
+    return prompt, images, question, sample["id"]
 
 
 def parse_args():
@@ -60,6 +87,24 @@ def parse_args():
     parser.add_argument("--metrics", action="store_true", help="Print per-sample and aggregate speed metrics")
     parser.add_argument("--metrics-output", default=None, help="Optional JSON path for aggregate and per-sample metrics")
     return parser.parse_args()
+
+
+def _build_engine(args):
+    target_model, target_lora = _resolve_model_and_lora(args.target_model)
+    draft_model, draft_lora = _resolve_model_and_lora(args.draft_model)
+    config = Config(
+        model=target_model,
+        draft=draft_model,
+        lora_path=target_lora,
+        draft_lora_path=draft_lora,
+        is_vlm=True,
+        speculate=True,
+        draft_async=True,
+        num_gpus=args.num_gpus,
+        speculate_k=args.spec_k,
+        max_model_len=args.max_model_len,
+    )
+    return LLMEngine(config)
 
 
 def _safe_divide(numerator: float, denominator: float) -> float:
@@ -106,15 +151,7 @@ def main():
     if args.max_samples is not None:
         dataset = dataset.select(range(min(args.max_samples, len(dataset))))
 
-    llm = LLM(
-        str((REPO_ROOT / args.target_model).resolve()) if not Path(args.target_model).is_absolute() else args.target_model,
-        speculate=True,
-        draft_async=True,
-        draft=str((REPO_ROOT / args.draft_model).resolve()) if not Path(args.draft_model).is_absolute() else args.draft_model,
-        num_gpus=args.num_gpus,
-        speculate_k=args.spec_k,
-        max_model_len=args.max_model_len,
-    )
+    engine = _build_engine(args)
 
     output_path = Path(args.output)
     if not output_path.is_absolute():
@@ -124,7 +161,7 @@ def main():
     results = []
     per_sample_metrics = []
     for sample in tqdm(dataset, desc="SSD VLM Inference", dynamic_ncols=True):
-        prompt, question, sample_id = _sample_to_prompt(sample)
+        prompt, images, question, sample_id = _sample_to_prompt(sample)
 
         first_token_time = [None]
 
@@ -133,11 +170,12 @@ def main():
                 first_token_time[0] = time.perf_counter()
 
         t0 = time.perf_counter()
-        outputs, metrics = llm.generate(
+        outputs, metrics = engine.generate(
             [prompt],
             [SamplingParams(temperature=0.0, max_new_tokens=args.max_new_tokens)],
             use_tqdm=False,
             stream_callback=on_tokens,
+            images=[images],
         )
         t1 = time.perf_counter()
 
