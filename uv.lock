@@ -562,6 +562,7 @@ dependencies = [
     { name = "torchvision" },
     { name = "transformers" },
     { name = "wandb" },
+    { name = "xxhash" },
 ]
 
 [package.metadata]
@@ -584,6 +585,7 @@ requires-dist = [
     { name = "torchvision", specifier = ">=0.21.0" },
     { name = "transformers", specifier = ">=4.52.0" },
     { name = "wandb", specifier = ">=0.27.0" },
+    { name = "xxhash", specifier = ">=3.7.0" },
 ]
 
 [[package]]
