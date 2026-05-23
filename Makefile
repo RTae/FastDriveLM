@@ -34,7 +34,7 @@ fine_tune_qwen3vl_draft:
 		--log_path qwen3vl.json \
 		configs/qwen3/qwen3vl_drivelm-draft_1xb1-lora_config.py
 
-OUTPUT_MODEL := ./outputs/qwen3vl_draft/qwen3vl-2b-draft-2026-05-16_15-31/epoch-3
+OUTPUT_MODEL := ./outputs/qwen3vl
 inference_qwen3vl:
 	python tools/inference.py \
 		--model-path $(OUTPUT_MODEL) \
