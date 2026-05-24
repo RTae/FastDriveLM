@@ -16,10 +16,7 @@ def _required_env(var_name: str, note: str) -> str:
 # root directory where huggingface model snapshots are stored. each model
 # lives under this as models--org--name/snapshots/<hash>/. if you downloaded
 # models with `huggingface-cli download`, this is your HF_HOME/hub directory.
-HF_CACHE_DIR = _required_env(
-    "SSD_HF_CACHE",
-    "Set it to your HuggingFace cache hub directory (for example: /path/to/huggingface/hub).",
-)
+HF_CACHE_DIR = "./base_models"
 
 # default target and draft model snapshot paths. these are full paths to the
 # snapshot directory containing config.json. override if your models live
@@ -50,10 +47,7 @@ EAGLE3_QWEN_32B = os.environ.get(
 # directory containing preprocessed benchmark datasets (jsonl files).
 # each dataset is a subdirectory with a file like humaneval_data_10000.jsonl.
 # you can generate these with scripts/get_data_from_hf.py.
-DATASET_DIR = _required_env(
-    "SSD_DATASET_DIR",
-    "Set it to your processed dataset directory (for example: /path/to/processed_datasets).",
-)
+DATASET_DIR = "./datasets"
 DATASET_PATHS = {
     "humaneval":     f"{DATASET_DIR}/humaneval/humaneval_data_10000.jsonl",
     "alpaca":        f"{DATASET_DIR}/alpaca/alpaca_data_10000.jsonl",

@@ -12,8 +12,8 @@ from tqdm import tqdm
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-from ssd.ssd import SamplingParams
-from ssd.ssd.engine.llm_engine import LLMEngine 
+from ssd import SamplingParams
+from ssd.engine.llm_engine import LLMEngine 
 
 
 IMAGE_PLACEHOLDER = "<|vision_start|><|image_pad|><|vision_end|>"
