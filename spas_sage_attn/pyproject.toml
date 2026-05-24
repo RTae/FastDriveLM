@@ -1,0 +1,19 @@
+[project]
+name = "spas-sage-attn"
+version = "0.1.0"
+description = "Sparse SageAttention CUDA extensions"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "einops",
+    "triton",
+    "numpy",
+]
+
+[build-system]
+requires = ["setuptools>=61", "torch", "ninja"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["spas_sage_attn*"]
