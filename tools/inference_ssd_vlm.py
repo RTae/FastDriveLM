@@ -26,8 +26,8 @@ _ensure_env_defaults()
 if str(SSD_ROOT) not in sys.path:
     sys.path.insert(0, str(SSD_ROOT))
 
-from ssd import SamplingParams  # noqa: E402
-from ssd.engine.llm_engine import LLMEngine  # noqa: E402
+from ssd.ssd import SamplingParams 
+from ssd.ssd.engine.llm_engine import LLMEngine
 
 
 IMAGE_PLACEHOLDER = "<|vision_start|><|image_pad|><|vision_end|>"
