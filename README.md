@@ -10,6 +10,11 @@
 uv sync
 ```
 
+2. Install SpasSageAttn for the SpargeAttn backend
+```bash
+uv pip install --python .venv/bin/python -e ./spas_sage_attn
+```
+
 ## How to enter the virtual environment
 ```bash
 source .venv/bin/activate
