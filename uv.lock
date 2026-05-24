@@ -542,7 +542,7 @@ requires-dist = [
     { name = "pycocoevalcap", specifier = ">=1.2" },
     { name = "rouge-score", specifier = ">=0.1.2" },
     { name = "scipy", specifier = ">=1.13.1" },
-    { name = "sgl-kernel", specifier = "==0.3.14" },
+    { name = "sgl-kernel", url = "https://ghproxy.net/https://github.com/sgl-project/whl/releases/download/v0.3.14/sgl_kernel-0.3.14+cu128-cp310-abi3-manylinux2014_x86_64.whl" },
     { name = "soundfile", specifier = "==0.13.1" },
     { name = "spas-sage-attn", editable = "spas_sage_attn" },
     { name = "tensorboard", specifier = ">=2.20.0" },
@@ -2173,10 +2173,9 @@ wheels = [
 [[package]]
 name = "sgl-kernel"
 version = "0.3.14"
-source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+source = { url = "https://ghproxy.net/https://github.com/sgl-project/whl/releases/download/v0.3.14/sgl_kernel-0.3.14+cu128-cp310-abi3-manylinux2014_x86_64.whl" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/3d/da/b02d1edfde607b75bf5ba63816faeeb575a17f6d5fec894595edd2c2543e/sgl_kernel-0.3.14-cp310-abi3-manylinux2014_aarch64.whl", hash = "sha256:9360439a0c7edd335bd841464d8c3c4e95f5133d80af17b8d6b5ffaa75c512be", size = 307744956, upload-time = "2025-10-01T16:59:04.682Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/e5/8f/9b0adb1eb24025ce4e2b28d75362116d87963079ae904016b3cf32cdbedb/sgl_kernel-0.3.14-cp310-abi3-manylinux2014_x86_64.whl", hash = "sha256:a495078cf2ca3e9b55b5d0d206c41eabd238320d78953db3468e6cef1b9b37e8", size = 511059101, upload-time = "2025-09-30T11:00:53.447Z" },
+    { url = "https://ghproxy.net/https://github.com/sgl-project/whl/releases/download/v0.3.14/sgl_kernel-0.3.14+cu128-cp310-abi3-manylinux2014_x86_64.whl", hash = "sha256:401b0217614cd5b866ba8e47834881d5cb936baede80b8a25b86b7dd97970f13" },
 ]
 
 [[package]]
