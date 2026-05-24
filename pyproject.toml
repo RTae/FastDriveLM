@@ -32,6 +32,7 @@ dependencies = [
     "einops>=0.8.0",
     "spas-sage-attn",
     "sgl-kernel==0.3.21",
+    "ninja>=1.13.0",
 ]
 
 [tool.setuptools.packages.find]
