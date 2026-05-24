@@ -84,7 +84,7 @@ after running this script, the data will be organized as follows:
 
 Both scripts write metrics in the same JSON schema, so you can compare them directly.
 
-**Step 1 — Run standard HuggingFace inference and save metrics:**
+1. Run standard HuggingFace inference and save metrics:
 
 ```bash
 python tools/inference.py \
@@ -97,7 +97,7 @@ python tools/inference.py \
     --metrics-output outputs/qwen3vl/metrics_baseline.json
 ```
 
-**Step 2 — Run SSD speculative-decoding inference and save metrics:**
+2. Run SSD speculative-decoding inference and save metrics:
 
 ```bash
 python tools/inference_ssd_vlm.py \
@@ -110,7 +110,7 @@ python tools/inference_ssd_vlm.py \
     --metrics-output outputs/qwen3vl/metrics_ssd.json
 ```
 
-**Step 3 — Compare the two `summary` blocks side by side:**
+3. Compare the two `summary` blocks side by side:
 
 ```bash
 python - <<'PY'
