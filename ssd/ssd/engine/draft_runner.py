@@ -53,10 +53,11 @@ class DraftRunner(ModelRunner):
         assert self.draft_async and self.is_draft
 
         # 1) Receive metadata then individual tensors
-        # First recv metadata to learn sizes
-        metadata = torch.zeros(5, dtype=torch.int64, device=self.device)
+        # Metadata layout: [total_new_tokens, batch_size, max_blocks, use_eagle, eagle_act_dim,
+        #                    pv_len, pv_dim, thw_nrows, mask_len]
+        metadata = torch.zeros(9, dtype=torch.int64, device=self.device)
         dist.recv(metadata, src=0, group=self.async_pg)
-        total_new_tokens, batch_size, max_blocks, use_eagle, eagle_act_dim = metadata.tolist()
+        total_new_tokens, batch_size, max_blocks, use_eagle, eagle_act_dim, pv_len, pv_dim, thw_nrows, mask_len = metadata.tolist()
         if use_eagle:
             assert eagle_act_dim == 3 * self.config.d_model_target, (
                 f"EAGLE activation dimension {eagle_act_dim} does not match expected dimension 3 * {self.config.d_model_target}"
@@ -78,6 +79,21 @@ class DraftRunner(ModelRunner):
             )
             dist.recv(eagle_acts, src=0, group=self.async_pg)
 
+        # 3) receive VLM inputs if present
+        vlm_kwargs = {}
+        if pv_len > 0:
+            pixel_values = torch.empty(pv_len, pv_dim, dtype=self.hf_config.torch_dtype, device=self.device)
+            dist.recv(pixel_values, src=0, group=self.async_pg)
+            vlm_kwargs["pixel_values"] = pixel_values
+        if thw_nrows > 0:
+            image_grid_thw = torch.empty(thw_nrows, 3, dtype=torch.int64, device=self.device)
+            dist.recv(image_grid_thw, src=0, group=self.async_pg)
+            vlm_kwargs["image_grid_thw"] = image_grid_thw
+        if mask_len > 0:
+            image_mask_i8 = torch.empty(mask_len, dtype=torch.int8, device=self.device)
+            dist.recv(image_mask_i8, src=0, group=self.async_pg)
+            vlm_kwargs["image_mask"] = image_mask_i8.bool()
+
         prefill_ctxt = self.prepare_prefill_ctxt(num_tokens, draft_block_table)
 
         # 5) set up context exactly like prepare_prefill() does:
@@ -93,10 +109,8 @@ class DraftRunner(ModelRunner):
 
         # 6) run the draft model in prefill mode
         positions = prefill_ctxt["positions"]
-        if self.config.use_eagle:
-            self.run_model(input_ids, positions, is_prefill=True, last_only=True, hidden_states=eagle_acts)
-        else:
-            self.run_model(input_ids, positions, is_prefill=True, last_only=True, hidden_states=eagle_acts)
+        self.run_model(input_ids, positions, is_prefill=True, last_only=True,
+                       hidden_states=eagle_acts, vlm_kwargs=vlm_kwargs if vlm_kwargs else None)
 
         # 7) clean up
         reset_context()

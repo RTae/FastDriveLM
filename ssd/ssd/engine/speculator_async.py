@@ -25,6 +25,7 @@ class SpeculatorAsync(SpeculatorBase):
         draft_runner_rank: int,
         tokenizer: AutoTokenizer,
         verbose: bool,
+        is_vlm: bool = False,
     ):
         super().__init__(lookahead, device)
         self.async_fan_out = async_fan_out
@@ -38,6 +39,7 @@ class SpeculatorAsync(SpeculatorBase):
         self.tokenizer = tokenizer
         self.verbose = verbose
         self.K = lookahead
+        self.is_vlm = is_vlm
 
         # Pre-allocate handshake send/recv buffers (reused every step)
         self._alloc_handshake_bufs(1)
@@ -76,10 +78,28 @@ class SpeculatorAsync(SpeculatorBase):
             eagle_acts = torch.cat(sliced, dim=0)
             input_id_list = [ids[1:] for ids in input_id_list]
 
+        # Collect VLM inputs from sequences before they may be cleared by the target runner.
+        # For non-EAGLE async, speculator.prefill() runs before verifier.prefill(), so
+        # pixel_values etc. are still intact on the sequences at this point.
+        # For EAGLE async, the sync fix in model_runner.py ensures the target does not
+        # clear VLM inputs when speculate=True, so they are still present here too.
+        vlm_inputs = None
+        if self.is_vlm:
+            all_pv = [seq.pixel_values for seq in seqs if seq.pixel_values is not None]
+            all_thw = [seq.image_grid_thw for seq in seqs if seq.image_grid_thw is not None]
+            all_mask = [seq.image_mask for seq in seqs if seq.image_mask is not None]
+            if all_pv:
+                vlm_inputs = {
+                    "pixel_values": torch.cat(all_pv, dim=0),
+                    "image_grid_thw": torch.cat(all_thw, dim=0) if all_thw else None,
+                    "image_mask": torch.cat(all_mask, dim=0) if all_mask else None,
+                }
+
         max_blocks = (self.max_model_len + self.kvcache_block_size - 1) // self.kvcache_block_size
-        cmd, metadata, input_ids, num_tokens, draft_block_table, eagle_acts = prepare_prefill_payload(
+        cmd, metadata, input_ids, num_tokens, draft_block_table, eagle_acts, pixel_values, image_grid_thw, image_mask = prepare_prefill_payload(
             input_id_list, eagle_acts, self.device, max_blocks,
             [seq.draft_block_table for seq in seqs],
+            vlm_inputs=vlm_inputs,
         )
         dist.send(cmd, dst=self.draft_runner_rank, group=self.async_pg)
         dist.send(metadata, dst=self.draft_runner_rank, group=self.async_pg)
@@ -87,6 +107,12 @@ class SpeculatorAsync(SpeculatorBase):
                    input_ids, num_tokens, draft_block_table.to(torch.int64))
         if eagle_acts is not None:
             dist.send(eagle_acts, dst=self.draft_runner_rank, group=self.async_pg)
+        if pixel_values is not None:
+            dist.send(pixel_values.to(self.draft_dtype), dst=self.draft_runner_rank, group=self.async_pg)
+        if image_grid_thw is not None:
+            dist.send(image_grid_thw.to(torch.int64), dst=self.draft_runner_rank, group=self.async_pg)
+        if image_mask is not None:
+            dist.send(image_mask.to(torch.int8), dst=self.draft_runner_rank, group=self.async_pg)
         return SpeculateResult([], [])
 
     def speculate(self, seqs: list[Sequence], verify_result: VerifyResult) -> SpeculateResult:
