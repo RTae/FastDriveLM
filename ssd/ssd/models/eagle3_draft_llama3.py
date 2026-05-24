@@ -29,6 +29,8 @@ class Eagle3Attention(nn.Module):
         draft_async: bool,
         tp_group: dist.ProcessGroup | None,
         tp_size: int,
+        attn_backend: str = "flash",
+        sparge_topk: float = 0.5,
     ):
         super().__init__()
         self.draft = draft
@@ -83,6 +85,8 @@ class Eagle3Attention(nn.Module):
             use_eagle=True,
             F=async_fan_out,
             K=spec_k,
+            attn_backend=attn_backend,
+            sparge_topk=sparge_topk,
         )
 
     def forward(self, positions: torch.Tensor, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -107,6 +111,8 @@ class Eagle3DecoderLayer(nn.Module):
         draft_async: bool,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
+        attn_backend: str = "flash",
+        sparge_topk: float = 0.5,
     ):
         super().__init__()
         self.self_attn = Eagle3Attention(
@@ -125,6 +131,8 @@ class Eagle3DecoderLayer(nn.Module):
             draft_async=draft_async,
             tp_group=tp_group,
             tp_size=tp_size,
+            attn_backend=attn_backend,
+            sparge_topk=sparge_topk,
         )
         self.mlp = LlamaMLP(
             hidden_size=config.hidden_size,
@@ -166,6 +174,8 @@ class Eagle3DraftModel(nn.Module):
         eagle_layers: list[int] | None = None,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
+        attn_backend: str = "flash",
+        sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
         self.draft = draft
@@ -192,6 +202,8 @@ class Eagle3DraftModel(nn.Module):
             draft_async=self.draft_async,
             tp_group=tp_group,
             tp_size=tp_size,
+            attn_backend=attn_backend,
+            sparge_topk=sparge_topk,
         )
 
     def forward(
@@ -227,6 +239,8 @@ class Eagle3DraftForCausalLM(nn.Module):
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
         debug_mode: bool = False,
+        attn_backend: str = "flash",
+        sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
 
@@ -255,7 +269,7 @@ class Eagle3DraftForCausalLM(nn.Module):
         print(f'Starting Eagle3DraftForCausalLM init, draft={draft}, speculate={speculate}, spec_k={spec_k}')
         self.fc = nn.Linear(len(self.eagle_layers) * d_model_target, config.hidden_size, bias=False)
         self.final_norm = RMSDNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.model = Eagle3DraftModel(config, draft, speculate, spec_k, async_fan_out, draft_async, use_eagle=use_eagle, eagle_layers=eagle_layers, tp_group=tp_group, tp_size=self.tp_size)
+        self.model = Eagle3DraftModel(config, draft, speculate, spec_k, async_fan_out, draft_async, use_eagle=use_eagle, eagle_layers=eagle_layers, tp_group=tp_group, tp_size=self.tp_size, attn_backend=attn_backend, sparge_topk=sparge_topk)
         self.lm_head = ParallelLMHead(
             config.draft_vocab_size,  # LM head size (subset of tokens draft can propose)
             config.hidden_size,

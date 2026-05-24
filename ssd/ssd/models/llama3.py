@@ -29,6 +29,8 @@ class LlamaAttention(nn.Module):  # Renamed from Qwen3Attention
         draft_async: bool = False,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
+        attn_backend: str = "flash",
+        sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
         self.draft = draft
@@ -83,6 +85,8 @@ class LlamaAttention(nn.Module):  # Renamed from Qwen3Attention
             draft_async=draft_async,
             F=async_fan_out,
             K=spec_k,
+            attn_backend=attn_backend,
+            sparge_topk=sparge_topk,
         )
         # no qk norm for llama3 compared to qwen3 
 
@@ -146,6 +150,8 @@ class LlamaDecoderLayer(nn.Module):
         draft_async: bool,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
+        attn_backend: str = "flash",
+        sparge_topk: float = 0.5,
     ) -> None:
         super().__init__() 
         self.draft = draft
@@ -169,6 +175,8 @@ class LlamaDecoderLayer(nn.Module):
             draft_async=self.draft_async,
             tp_group=tp_group,
             tp_size=tp_size,
+            attn_backend=attn_backend,
+            sparge_topk=sparge_topk,
         )
 
         self.mlp = LlamaMLP(
@@ -213,6 +221,8 @@ class LlamaModel(nn.Module):
         eagle_layers: list[int] | None = None,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
+        attn_backend: str = "flash",
+        sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
         self.draft = draft
@@ -240,6 +250,8 @@ class LlamaModel(nn.Module):
                 draft_async=self.draft_async,
                 tp_group=tp_group,
                 tp_size=tp_size,
+                attn_backend=attn_backend,
+                sparge_topk=sparge_topk,
             )
             for _ in range(config.num_hidden_layers)
         ])
@@ -293,6 +305,8 @@ class LlamaForCausalLM(nn.Module):
         draft_async: bool = False,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
+        attn_backend: str = "flash",
+        sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
 
@@ -310,7 +324,7 @@ class LlamaForCausalLM(nn.Module):
 
         print(f'Starting LlamaForCausalLM init, draft={draft}, speculate={speculate}, spec_k={spec_k}')
         print(f'[LlamaForCausalLM] use_eagle={use_eagle}, eagle_layers={eagle_layers}', flush=True)
-        self.model = LlamaModel(config, draft, speculate, spec_k, async_fan_out, draft_async, use_eagle=use_eagle, eagle_layers=eagle_layers, tp_group=tp_group, tp_size=self.tp_size)
+        self.model = LlamaModel(config, draft, speculate, spec_k, async_fan_out, draft_async, use_eagle=use_eagle, eagle_layers=eagle_layers, tp_group=tp_group, tp_size=self.tp_size, attn_backend=attn_backend, sparge_topk=sparge_topk)
         self.lm_head = ParallelLMHead(
             config.vocab_size,
             config.hidden_size,
