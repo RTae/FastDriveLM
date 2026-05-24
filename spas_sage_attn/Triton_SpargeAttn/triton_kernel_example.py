@@ -14,12 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-import torch, math
+import torch
 import triton
 import triton.language as tl
 import torch.nn.functional as F
-from .utils import hyperparameter_check, get_block_map_meansim
-from .quant_per_block import per_block_int8
+from spas_sage_attn.utils import hyperparameter_check, get_block_map_meansim
+from spas_sage_attn.quant_per_block import per_block_int8
 
 
 @torch.compiler.disable
