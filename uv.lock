@@ -516,7 +516,7 @@ dependencies = [
     { name = "pycocoevalcap" },
     { name = "rouge-score" },
     { name = "scipy" },
-    { name = "sglang-kernel" },
+    { name = "sgl-kernel" },
     { name = "soundfile" },
     { name = "spas-sage-attn" },
     { name = "tensorboard" },
@@ -542,7 +542,7 @@ requires-dist = [
     { name = "pycocoevalcap", specifier = ">=1.2" },
     { name = "rouge-score", specifier = ">=0.1.2" },
     { name = "scipy", specifier = ">=1.13.1" },
-    { name = "sglang-kernel", specifier = ">=0.3.21" },
+    { name = "sgl-kernel", specifier = "==0.3.14" },
     { name = "soundfile", specifier = "==0.13.1" },
     { name = "spas-sage-attn", editable = "spas_sage_attn" },
     { name = "tensorboard", specifier = ">=2.20.0" },
@@ -2171,12 +2171,12 @@ wheels = [
 ]
 
 [[package]]
-name = "sglang-kernel"
-version = "0.4.2.post2"
+name = "sgl-kernel"
+version = "0.3.14"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/3b/32/16a7421e6f486c8b4e19b561497b3de88c9e0b8899dcd9a85e1288a220c4/sglang_kernel-0.4.2.post2-cp310-abi3-manylinux2014_aarch64.whl", hash = "sha256:d1b5351f669495ec39b4cf7881242805105ce2e4909b2ae7d5424a2d4b632e64", size = 189319639, upload-time = "2026-05-15T00:58:34.37Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/5a/c8/262263edac73965f190bffd4c072ec65705d9176486b10eda4d5632db1ab/sglang_kernel-0.4.2.post2-cp310-abi3-manylinux2014_x86_64.whl", hash = "sha256:f275ce01010933c4ea655e832a05442b766ab8f23dcfd6ff678b15e295d42203", size = 322336314, upload-time = "2026-05-15T01:16:39.493Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/3d/da/b02d1edfde607b75bf5ba63816faeeb575a17f6d5fec894595edd2c2543e/sgl_kernel-0.3.14-cp310-abi3-manylinux2014_aarch64.whl", hash = "sha256:9360439a0c7edd335bd841464d8c3c4e95f5133d80af17b8d6b5ffaa75c512be", size = 307744956, upload-time = "2025-10-01T16:59:04.682Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/e5/8f/9b0adb1eb24025ce4e2b28d75362116d87963079ae904016b3cf32cdbedb/sgl_kernel-0.3.14-cp310-abi3-manylinux2014_x86_64.whl", hash = "sha256:a495078cf2ca3e9b55b5d0d206c41eabd238320d78953db3468e6cef1b9b37e8", size = 511059101, upload-time = "2025-09-30T11:00:53.447Z" },
 ]
 
 [[package]]

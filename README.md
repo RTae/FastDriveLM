@@ -7,7 +7,7 @@
 ## Installation
 1. Install Python dependencies and set up virtual environment
 ```bash
-uv sync
+uv sync --no-install-local --no-build-isolation
 ```
 
 2. Install SpasSageAttn for the SpargeAttn backend
