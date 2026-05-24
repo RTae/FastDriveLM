@@ -31,7 +31,7 @@ dependencies = [
     "xxhash>=3.7.0",
     "einops>=0.8.0",
     "spas-sage-attn",
-    "sgl-kernel==0.3.14+cu128",
+    "sgl-kernel==0.3.21",
 ]
 
 [tool.setuptools.packages.find]
@@ -42,8 +42,8 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [[tool.uv.index]]
@@ -51,7 +51,6 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu128" }
-torchvision = { index = "pytorch-cu128" }
-sgl-kernel = { url = "https://ghproxy.net/https://github.com/sgl-project/whl/releases/download/v0.3.14/sgl_kernel-0.3.14+cu128-cp310-abi3-manylinux2014_x86_64.whl" }
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
 spas-sage-attn = { path = "spas_sage_attn", editable = true }
