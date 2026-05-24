@@ -50,7 +50,13 @@ explicit = true
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
+[[tool.uv.index]]
+name = "sgl-cu128"
+url = "https://sgl-project.github.io/whl/cu128"
+explicit = true
+
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
+sgl-kernel = { index = "sgl-cu128" }
 spas-sage-attn = { path = "spas_sage_attn", editable = true }
