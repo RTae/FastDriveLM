@@ -673,8 +673,11 @@ class ModelRunner:
         else:
             logits = self.run_model(input_ids, positions, is_prefill, last_only, hidden_states=hidden_states, vlm_kwargs=vlm_kwargs)
 
-        # Clear VLM data from sequences after prefill (no longer needed)
-        if is_prefill and vlm_kwargs:
+        # Clear VLM data from sequences after prefill (no longer needed).
+        # In speculative decoding the target runs first; only clear from the draft's run
+        # so the draft VLM model also receives the image inputs during prefill.
+        is_spec_target = self.config.speculate and not self.is_draft
+        if is_prefill and vlm_kwargs and not is_spec_target:
             for seq in seqs:
                 seq.pixel_values = None
                 seq.image_grid_thw = None
