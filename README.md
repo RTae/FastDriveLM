@@ -180,6 +180,84 @@ python tools/inference.py \
 
 > **Note on `--warmup-steps`:** per-sample metrics are always saved for every sample; only the aggregate `summary` excludes the first N samples, so you can still inspect the warm-up entries in the JSON output.
 
+### Ablation study with `inference_ssd_vlm.py`
+
+`inference_ssd_vlm.py` exposes three feature flags for ablation experiments:
+
+| Flag | Type | Default | Effect |
+|------|------|---------|--------|
+| `--attn-backend` | choice | `flash` | Attention backend: `flash` or `sparge` (SpargeAttn sparse attention) |
+| `--use-prefix-caching` / `--no-prefix-caching` | flag | on | Enable/disable prefix (KV) caching. Automatically disabled when `--attn-backend=sparge` |
+| `--sparge-topk K` | float | `0.5` | SpargeAttn sparsity ratio in (0, 1]. Only used with `--attn-backend sparge` |
+| `--warmup-steps N` | int | `0` | Exclude the first N samples from aggregate metrics (GPU warm-up) |
+
+**Example — compare attention backends:**
+
+```bash
+for ATTN in flash sparge; do
+  python tools/inference_ssd_vlm.py \
+      --target-model outputs/qwen3vl \
+      --draft-model outputs/qwen3vl_draft \
+      --data datasets/DriveLM_nuScenes/split/val \
+      --output outputs/qwen3vl/infer_results_ssd_${ATTN}.json \
+      --metrics \
+      --metrics-output outputs/qwen3vl/metrics_ssd_${ATTN}.json \
+      --attn-backend $ATTN \
+      --warmup-steps 2 \
+      --max-samples 20
+done
+```
+
+**Example — measure the effect of prefix caching:**
+
+```bash
+# Without prefix caching
+python tools/inference_ssd_vlm.py \
+    --target-model outputs/qwen3vl \
+    --draft-model outputs/qwen3vl_draft \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_ssd_no_cache.json \
+    --metrics --metrics-output outputs/qwen3vl/metrics_ssd_no_cache.json \
+    --no-prefix-caching \
+    --warmup-steps 2 --max-samples 20
+
+# With prefix caching (default)
+python tools/inference_ssd_vlm.py \
+    --target-model outputs/qwen3vl \
+    --draft-model outputs/qwen3vl_draft \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_ssd_cache.json \
+    --metrics --metrics-output outputs/qwen3vl/metrics_ssd_cache.json \
+    --use-prefix-caching \
+    --warmup-steps 2 --max-samples 20
+```
+
+**Example — sweep SpargeAttn sparsity ratios:**
+
+```bash
+for TOPK in 0.3 0.5 0.7; do
+  python tools/inference_ssd_vlm.py \
+      --target-model outputs/qwen3vl \
+      --draft-model outputs/qwen3vl_draft \
+      --data datasets/DriveLM_nuScenes/split/val \
+      --output outputs/qwen3vl/infer_results_ssd_sparge${TOPK}.json \
+      --metrics \
+      --metrics-output outputs/qwen3vl/metrics_ssd_sparge${TOPK}.json \
+      --attn-backend sparge \
+      --sparge-topk $TOPK \
+      --warmup-steps 2 \
+      --max-samples 20
+done
+```
+
+Or use the Makefile shortcut for a standard run:
+
+```bash
+make inference_ssd_vlm
+# or override models:
+make inference_ssd_vlm OUTPUT_MODEL=./outputs/qwen3vl DRAFT_MODEL=./outputs/qwen3vl_draft
+```
+
 ### Run Qwen3-VL with SSD-style target/draft setup
 
 For the multimodal speculative path in the `ssd/` submodule, use:

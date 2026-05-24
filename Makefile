@@ -42,13 +42,12 @@ inference_qwen3vl:
 		--data datasets/DriveLM_nuScenes/split/val \
 		--output $(OUTPUT_MODEL)/infer_results.json
 
-ABLATION_OUTPUT_DIR := ./outputs/ablation_ssd_vlm
 DRAFT_MODEL := ./outputs/qwen3vl_draft
-ablation_ssd_vlm:
-	python tools/ablation_ssd_vlm.py \
+inference_ssd_vlm:
+	python tools/inference_ssd_vlm.py \
 		--target-model $(OUTPUT_MODEL) \
 		--draft-model  $(DRAFT_MODEL) \
 		--data         datasets/DriveLM_nuScenes/split/val \
-		--output-dir   $(ABLATION_OUTPUT_DIR) \
-		--max-samples  50 \
-		--warmup-steps 2
+		--output       $(OUTPUT_MODEL)/infer_results_ssd.json \
+		--metrics \
+		--metrics-output $(OUTPUT_MODEL)/metrics_ssd.json
