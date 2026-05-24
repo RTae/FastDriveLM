@@ -75,7 +75,7 @@ after running this script, the data will be organized as follows:
 
 ## Run inference
 
-### Performance comparison: `inference.py` vs `inference_ssd_vlm.py`
+### Performance comparison
 
 Both scripts write metrics in the same JSON schema, so you can compare them directly.
 
@@ -88,6 +88,7 @@ python tools/inference.py \
     --data datasets/DriveLM_nuScenes/split/val \
     --output outputs/qwen3vl/infer_results.json \
     --metrics \
+    --max-samples 10 \
     --metrics-output outputs/qwen3vl/metrics_baseline.json
 ```
 
@@ -100,6 +101,7 @@ python tools/inference_ssd_vlm.py \
     --data datasets/DriveLM_nuScenes/split/val \
     --output outputs/qwen3vl/infer_results_ssd.json \
     --metrics \
+    --max-samples 10 \
     --metrics-output outputs/qwen3vl/metrics_ssd.json
 ```
 
