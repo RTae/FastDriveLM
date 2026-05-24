@@ -128,7 +128,8 @@ Both metrics files share the same keys:
 `end_to_end_throughput_tok_per_sec`, `runner_decode_throughput_tok_per_sec`,
 `avg_target_step_time_ms`, `avg_target_verify_time_ms`.
 
-### Ablation study with `inference.py`
+### Ablation study
+#### Baseline
 
 `inference.py` exposes three feature flags for ablation experiments:
 
@@ -180,7 +181,7 @@ python tools/inference.py \
 
 > **Note on `--warmup-steps`:** per-sample metrics are always saved for every sample; only the aggregate `summary` excludes the first N samples, so you can still inspect the warm-up entries in the JSON output.
 
-### Ablation study with `inference_ssd_vlm.py`
+#### SSD
 
 `inference_ssd_vlm.py` exposes three feature flags for ablation experiments:
 
