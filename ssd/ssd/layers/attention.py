@@ -93,8 +93,7 @@ class Attention(nn.Module):
             k, v = k.view(-1, self.num_kv_heads, self.head_dim), v.view(-1, self.num_kv_heads, self.head_dim)
 
             if self.attn_backend == "sparge":
-                # SpargeAttn: lazy import, only required when attn_backend="sparge"
-                from spas_sage_attn import spas_sage2_attn_meansim_topk_cuda  # noqa: PLC0415
+                from spas_sage_attn import spas_sage2_attn_meansim_topk_cuda
                 # SpargeAttn expects (batch, seq_len, num_heads, head_dim) with NHD tensor_layout,
                 # but its internal layout is HND (heads, seq, dim).
                 # Reshape: (total_tokens, heads, dim) -> (1, total_tokens, heads, dim) for batch=1,
