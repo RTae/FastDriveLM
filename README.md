@@ -75,6 +75,111 @@ after running this script, the data will be organized as follows:
 
 ## Run inference
 
+### Performance comparison: `inference.py` vs `inference_ssd_vlm.py`
+
+Both scripts write metrics in the same JSON schema, so you can compare them directly.
+
+**Step 1 — Run standard HuggingFace inference and save metrics:**
+
+```bash
+python tools/inference.py \
+    --model-path outputs/qwen3vl \
+    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/metrics_baseline.json
+```
+
+**Step 2 — Run SSD speculative-decoding inference and save metrics:**
+
+```bash
+python tools/inference_ssd_vlm.py \
+    --target-model outputs/qwen3vl \
+    --draft-model outputs/qwen3vl_draft \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_ssd.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/metrics_ssd.json
+```
+
+**Step 3 — Compare the two `summary` blocks side by side:**
+
+```bash
+python - <<'PY'
+import json, sys
+
+def load(path):
+    with open(path) as f:
+        return json.load(f)["summary"]
+
+a = load("outputs/qwen3vl/metrics_baseline.json")
+b = load("outputs/qwen3vl/metrics_ssd.json")
+keys = [k for k in a if k != "num_samples"]
+print(f"{'metric':<45} {'baseline':>14} {'ssd':>14}")
+print("-" * 75)
+for k in keys:
+    print(f"{k:<45} {a[k]:>14.4f} {b[k]:>14.4f}")
+PY
+```
+
+Both metrics files share the same keys:
+`ttft_sec`, `latency_sec`, `prefill_throughput_tok_per_sec`, `decode_throughput_tok_per_sec`,
+`end_to_end_throughput_tok_per_sec`, `runner_decode_throughput_tok_per_sec`,
+`avg_target_step_time_ms`, `avg_target_verify_time_ms`.
+
+### Ablation study with `inference.py`
+
+`inference.py` exposes three feature flags for ablation experiments:
+
+| Flag | Type | Default | Effect |
+|------|------|---------|--------|
+| `--attn-implementation` | choice | `auto` | Switch attention backend: `eager`, `sdpa`, or `flash_attention_2` |
+| `--torch-compile` | flag | off | Wrap the model with `torch.compile` before inference |
+| `--warmup-steps N` | int | `0` | Exclude the first N samples from aggregate metrics (GPU warm-up) |
+
+**Example — compare attention backends:**
+
+```bash
+for ATTN in eager sdpa flash_attention_2; do
+  python tools/inference.py \
+      --model-path outputs/qwen3vl \
+      --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
+      --data datasets/DriveLM_nuScenes/split/val \
+      --output outputs/qwen3vl/infer_results_${ATTN}.json \
+      --metrics \
+      --metrics-output outputs/qwen3vl/metrics_${ATTN}.json \
+      --attn-implementation $ATTN \
+      --warmup-steps 2 \
+      --max-samples 20
+done
+```
+
+**Example — measure the effect of `torch.compile`:**
+
+```bash
+# Without compile
+python tools/inference.py \
+    --model-path outputs/qwen3vl \
+    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_no_compile.json \
+    --metrics --metrics-output outputs/qwen3vl/metrics_no_compile.json \
+    --warmup-steps 2 --max-samples 20
+
+# With compile
+python tools/inference.py \
+    --model-path outputs/qwen3vl \
+    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_compile.json \
+    --metrics --metrics-output outputs/qwen3vl/metrics_compile.json \
+    --torch-compile \
+    --warmup-steps 2 --max-samples 20
+```
+
+> **Note on `--warmup-steps`:** per-sample metrics are always saved for every sample; only the aggregate `summary` excludes the first N samples, so you can still inspect the warm-up entries in the JSON output.
+
 ### Run Qwen3-VL with SSD-style target/draft setup
 
 For the multimodal speculative path in the `ssd/` submodule, use:
