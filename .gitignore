@@ -16,3 +16,5 @@ qwen3vl.json
 spas_sage_attn/csrc/qattn/instantiations_sm80
 spas_sage_attn/csrc/qattn/instantiations_sm89
 spas_sage_attn/csrc/qattn/instantiations_sm90
+spas_sage_attn/_fused.cpython-312-x86_64-linux-gnu.so
+spas_sage_attn/_qattn.cpython-312-x86_64-linux-gnu.so
