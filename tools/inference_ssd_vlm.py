@@ -89,6 +89,13 @@ def parse_args():
     parser.add_argument("--max-samples", type=int, default=None, help="Optional number of samples to run")
     parser.add_argument("--metrics", action="store_true", help="Print per-sample and aggregate speed metrics")
     parser.add_argument("--metrics-output", default=None, help="Optional JSON path for aggregate and per-sample metrics")
+    # --- Ablation study feature flags ---
+    parser.add_argument("--use-prefix-caching", action=argparse.BooleanOptionalAction, default=True,
+                        help="Enable/disable prefix (KV) caching. Automatically disabled when --attn-backend=sparge.")
+    parser.add_argument("--attn-backend", choices=["flash", "sparge"], default="flash",
+                        help="Attention backend: 'flash' (default) or 'sparge' (SpargeAttn sparse attention).")
+    parser.add_argument("--sparge-topk", type=float, default=0.5,
+                        help="SpargeAttn sparsity ratio in (0, 1]. Only used when --attn-backend=sparge.")
     return parser.parse_args()
 
 
@@ -106,6 +113,9 @@ def _build_engine(args):
         num_gpus=args.num_gpus,
         speculate_k=args.spec_k,
         max_model_len=args.max_model_len,
+        use_prefix_caching=args.use_prefix_caching,
+        attn_backend=args.attn_backend,
+        sparge_topk=args.sparge_topk,
     )
 
 

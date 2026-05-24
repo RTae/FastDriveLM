@@ -29,6 +29,8 @@ TORCH_DTYPES = {
     "float32": torch.float32,
 }
 
+ATTN_IMPLEMENTATIONS = ["auto", "eager", "sdpa", "flash_attention_2"]
+
 
 def _safe_divide(numerator: float, denominator: float) -> float:
     return numerator / denominator if denominator > 0 else 0.0
@@ -241,6 +243,9 @@ def load_model_and_processor(args):
             config_kwargs["trust_remote_code"] = True
         model_kwargs["config"] = AutoConfig.from_pretrained(base_model, **config_kwargs)
 
+    if args.attn_implementation != "auto":
+        model_kwargs["attn_implementation"] = args.attn_implementation
+
     model = model_loader.from_pretrained(model_reference, **model_kwargs)
 
     if use_adapter_merge:
@@ -250,6 +255,9 @@ def load_model_and_processor(args):
 
     model.to(args.device)
     model.eval()
+
+    if args.torch_compile:
+        model = torch.compile(model)
 
     generation_config = load_generation_config(model, generation_source)
     return model, processor, generation_config
@@ -351,7 +359,7 @@ def main(args):
                     flush=True,
                 )
 
-    summary = _build_metrics_summary(per_sample_metrics)
+    summary = _build_metrics_summary(per_sample_metrics[args.warmup_steps:])
     if args.metrics:
         print(
             f"[metrics] samples={summary['num_samples']} total_tokens={summary['total_output_tokens']} "
@@ -401,6 +409,15 @@ def parse_args():
     parser.add_argument("--trust-remote-code", action=argparse.BooleanOptionalAction, default=None,
                         help="Override trust_remote_code. Defaults to auto for Qwen and Phi models.")
     parser.add_argument("--device", default="cuda", help="Device to run inference")
+    # --- Ablation study feature flags ---
+    parser.add_argument("--attn-implementation", choices=ATTN_IMPLEMENTATIONS, default="auto",
+                        help="Attention backend to use. 'auto' keeps the model default. "
+                             "Options: eager, sdpa, flash_attention_2.")
+    parser.add_argument("--torch-compile", action="store_true", default=False,
+                        help="Wrap the model with torch.compile before inference (ablation flag).")
+    parser.add_argument("--warmup-steps", type=int, default=0,
+                        help="Number of leading samples to exclude from aggregate metrics (warm-up). "
+                             "Per-sample metrics are still saved for all samples.")
     args = parser.parse_args()
     return args
 

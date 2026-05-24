@@ -41,3 +41,13 @@ inference_qwen3vl:
 		--collate_fn drivelm_nus_qwen3vl_collate_fn_val \
 		--data datasets/DriveLM_nuScenes/split/val \
 		--output $(OUTPUT_MODEL)/infer_results.json
+
+DRAFT_MODEL := ./outputs/qwen3vl_draft
+inference_ssd_vlm:
+	python tools/inference_ssd_vlm.py \
+		--target-model $(OUTPUT_MODEL) \
+		--draft-model  $(DRAFT_MODEL) \
+		--data         datasets/DriveLM_nuScenes/split/val \
+		--output       $(OUTPUT_MODEL)/infer_results_ssd.json \
+		--metrics \
+		--metrics-output $(OUTPUT_MODEL)/metrics_ssd.json
