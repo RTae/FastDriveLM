@@ -94,7 +94,7 @@ class Attention(nn.Module):
 
             if self.attn_backend == "sparge":
                 # SpargeAttn: lazy import, only required when attn_backend="sparge"
-                from sparge_attn import spas_sage_attn_meansim  # noqa: PLC0415
+                from spas_sage_attn import spas_sage2_attn_meansim_topk_cuda  # noqa: PLC0415
                 # SpargeAttn expects (batch, seq_len, num_heads, head_dim) with NHD tensor_layout,
                 # but its internal layout is HND (heads, seq, dim).
                 # Reshape: (total_tokens, heads, dim) -> (1, total_tokens, heads, dim) for batch=1,
@@ -102,10 +102,11 @@ class Attention(nn.Module):
                 q_s = q.permute(1, 0, 2).contiguous()   # (num_heads, total_tokens, head_dim)
                 k_s = k.permute(1, 0, 2).contiguous()   # (num_kv_heads, total_tokens, head_dim)
                 v_s = v.permute(1, 0, 2).contiguous()   # (num_kv_heads, total_tokens, head_dim)
-                o_s = spas_sage_attn_meansim(
+                o_s = spas_sage2_attn_meansim_topk_cuda(
                     q_s, k_s, v_s,
                     is_causal=True,
                     tensor_layout="HND",
+                    topk=self.sparge_topk,
                 )
                 # Permute back to (total_tokens, num_heads, head_dim)
                 o = o_s.permute(1, 0, 2).contiguous()
