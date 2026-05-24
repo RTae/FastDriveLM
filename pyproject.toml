@@ -31,7 +31,7 @@ dependencies = [
     "xxhash>=3.7.0",
     "einops>=0.8.0",
     "spas-sage-attn",
-    "sgl-kernel==0.3.14",
+    "sgl-kernel==0.3.14+cu128",
 ]
 
 [tool.setuptools.packages.find]
@@ -50,13 +50,8 @@ explicit = true
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
-[[tool.uv.index]]
-name = "sgl-cu128"
-url = "https://sgl-project.github.io/whl/cu128"
-explicit = true
-
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
-sgl-kernel = { index = "sgl-cu128" }
+sgl-kernel = { url = "https://ghproxy.net/https://github.com/sgl-project/whl/releases/download/v0.3.14/sgl_kernel-0.3.14+cu128-cp310-abi3-manylinux2014_x86_64.whl" }
 spas-sage-attn = { path = "spas_sage_attn", editable = true }
