@@ -9,7 +9,8 @@ def prepare_prefill_payload(
     device: torch.device,
     max_blocks: int,
     draft_block_tables: list[list[int]] | torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    vlm_inputs: dict | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
     input_ids_flat = []
     num_tokens = []
     for input_ids in input_id_list:
@@ -31,13 +32,28 @@ def prepare_prefill_payload(
     # 3) send cmd=1
     cmd = torch.tensor([1], dtype=torch.int64, device=device)
 
+    # VLM tensor extraction
+    pixel_values = vlm_inputs.get("pixel_values") if vlm_inputs else None
+    image_grid_thw = vlm_inputs.get("image_grid_thw") if vlm_inputs else None
+    image_mask = vlm_inputs.get("image_mask") if vlm_inputs else None
+    pv_len = pixel_values.shape[0] if pixel_values is not None else 0
+    pv_dim = pixel_values.shape[1] if pixel_values is not None else 0
+    thw_nrows = image_grid_thw.shape[0] if image_grid_thw is not None else 0
+    mask_len = image_mask.numel() if image_mask is not None else 0
+
     # 4) send metadata for tensor reconstruction
+    # Layout: [total_new_tokens, batch_size, max_blocks, use_eagle, eagle_act_dim,
+    #          pv_len, pv_dim, thw_nrows, mask_len]
     metadata = torch.tensor([
         input_ids_flat.size(0),
         len(input_id_list),  # batch_size
         max_blocks,
         1 if eagle_acts is not None else 0,
         eagle_acts.shape[1] if eagle_acts is not None else 0,
+        pv_len,
+        pv_dim,
+        thw_nrows,
+        mask_len,
     ], dtype=torch.int64, device=device)
 
     if eagle_acts is not None:
@@ -45,7 +61,7 @@ def prepare_prefill_payload(
             f"Eagle activations length {eagle_acts.shape[0]} != input_ids_flat length {input_ids_flat.shape[0]}"
         )
 
-    return cmd, metadata, input_ids_flat, num_tokens, draft_block_table, eagle_acts
+    return cmd, metadata, input_ids_flat, num_tokens, draft_block_table, eagle_acts, pixel_values, image_grid_thw, image_mask
 
 def prepare_decode_tensors_from_seqs(
     seqs: list[Sequence],
