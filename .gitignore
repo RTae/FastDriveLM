@@ -12,3 +12,7 @@ base_models/*
 paligemma_update.json
 *.log
 qwen3vl.json
+
+spas_sage_attn/csrc/qattn/instantiations_sm80
+spas_sage_attn/csrc/qattn/instantiations_sm89
+spas_sage_attn/csrc/qattn/instantiations_sm90
