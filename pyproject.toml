@@ -15,8 +15,8 @@ dependencies = [
     "soundfile==0.13.1",
     "pillow>=11.1.0",
     "scipy>=1.13.1",
-    "torch==2.11.0",
-    "torchvision==0.26.0",
+    "torch==2.8.0",
+    "torchvision==0.23.0",
     "backoff==2.2.1",
     "peft==0.15.1",
     "datasets>=4.8.5",
@@ -42,8 +42,15 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
 [tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
 spas-sage-attn = { path = "spas_sage_attn", editable = true }
