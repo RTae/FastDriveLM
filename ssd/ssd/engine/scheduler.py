@@ -27,14 +27,16 @@ class Scheduler:
         self.verbose = config.verbose
         self.draft_async = config.draft_async
         self.block_manager = BlockManager(
-            config.num_kvcache_blocks, config.kvcache_block_size, is_draft=False, verbose=self.verbose, max_model_len=self.max_model_len)
+            config.num_kvcache_blocks, config.kvcache_block_size, is_draft=False, verbose=self.verbose, max_model_len=self.max_model_len,
+            use_prefix_caching=config.use_prefix_caching)
 
         self.tokenizer = AutoTokenizer.from_pretrained(config.model)
 
         # num_kvcache_blocks is determined by gpu_mem_allocation in allocate()
         if self.speculate:
             self.draft_block_manager = BlockManager(
-                draft_cfg.num_kvcache_blocks, draft_cfg.kvcache_block_size, is_draft=True, speculate_k=self.K, verbose=self.verbose, max_model_len=self.max_model_len)
+                draft_cfg.num_kvcache_blocks, draft_cfg.kvcache_block_size, is_draft=True, speculate_k=self.K, verbose=self.verbose, max_model_len=self.max_model_len,
+                use_prefix_caching=config.use_prefix_caching)
 
         self.waiting: deque[Sequence] = deque()
         self.running: deque[Sequence] = deque()
@@ -161,7 +163,7 @@ class Scheduler:
                 block_table = seq.block_table
                 last_block = self.block_manager.blocks[block_table[-1]]
                 
-                if seq.last_block_num_tokens == self.block_size:
+                if self.block_manager.use_prefix_caching and seq.last_block_num_tokens == self.block_size:
                     token_ids = seq.block(seq.num_blocks-1)
                     prefix = self.block_manager.blocks[block_table[-2]].hash if len(block_table) > 1 else -1
                     h = self.block_manager.compute_hash(token_ids, prefix)
@@ -243,6 +245,8 @@ class Scheduler:
 
     def _finalize_block(self, block_manager, seq: Sequence, block_table: list[int], block_index: int):
         """Finalize a block by computing its hash and updating the cache."""
+        if not block_manager.use_prefix_caching:
+            return
         token_ids = seq.block(block_index)
         prefix = block_manager.blocks[block_table[-2]].hash if len(block_table) > 1 else -1
         h = block_manager.compute_hash(token_ids, prefix)

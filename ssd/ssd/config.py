@@ -70,6 +70,11 @@ class Config:
     # VLM (Vision Language Model)
     is_vlm: bool = False
 
+    # Ablation study flags
+    use_prefix_caching: bool = True
+    attn_backend: str = "flash"   # valid values: "flash", "sparge"
+    sparge_topk: float = 0.5      # SpargeAttn sparsity ratio (ignored when attn_backend != "sparge")
+
     # Debugging
     verbose: bool = False 
     debug_mode: bool = False 
@@ -123,3 +128,8 @@ class Config:
                     self.draft_hf_config.max_position_embeddings = target_max_pos
         
         assert self.max_num_batched_tokens >= self.max_model_len
+
+        assert self.attn_backend in ("flash", "sparge"), \
+            f"attn_backend must be 'flash' or 'sparge', got {self.attn_backend!r}"
+        if self.attn_backend == "sparge":
+            self.use_prefix_caching = False

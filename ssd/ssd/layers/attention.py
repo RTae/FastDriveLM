@@ -54,6 +54,8 @@ class Attention(nn.Module):
         use_eagle: bool = False,
         F: int = 1,
         K: int = 1,
+        attn_backend: str = "flash",
+        sparge_topk: float = 0.5,
     ):
         super().__init__()
         self.num_heads = num_heads
@@ -69,6 +71,8 @@ class Attention(nn.Module):
         self.F = F # async_fan_out
         self.K = K # speculate_k
         self.only_prefill_wrapper = None
+        self.attn_backend = attn_backend
+        self.sparge_topk = sparge_topk
 
     def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
         o: torch.Tensor
@@ -87,10 +91,29 @@ class Attention(nn.Module):
                 k, v = k_cache, v_cache
 
             k, v = k.view(-1, self.num_kv_heads, self.head_dim), v.view(-1, self.num_kv_heads, self.head_dim)
-            o = flash_attn_varlen_func(q, k, v,
-                                       max_seqlen_q=context.max_seqlen_q, cu_seqlens_q=context.cu_seqlens_q,
-                                       max_seqlen_k=context.max_seqlen_k, cu_seqlens_k=context.cu_seqlens_k,
-                                       softmax_scale=self.scale, causal=True)
+
+            if self.attn_backend == "sparge":
+                # SpargeAttn: lazy import, only required when attn_backend="sparge"
+                from sparge_attn import spas_sage_attn_meansim  # noqa: PLC0415
+                # SpargeAttn expects (batch, seq_len, num_heads, head_dim) with NHD tensor_layout,
+                # but its internal layout is HND (heads, seq, dim).
+                # Reshape: (total_tokens, heads, dim) -> (1, total_tokens, heads, dim) for batch=1,
+                # then permute to HND: (heads, total_tokens, dim)
+                q_s = q.permute(1, 0, 2).contiguous()   # (num_heads, total_tokens, head_dim)
+                k_s = k.permute(1, 0, 2).contiguous()   # (num_kv_heads, total_tokens, head_dim)
+                v_s = v.permute(1, 0, 2).contiguous()   # (num_kv_heads, total_tokens, head_dim)
+                o_s = spas_sage_attn_meansim(
+                    q_s, k_s, v_s,
+                    is_causal=True,
+                    tensor_layout="HND",
+                )
+                # Permute back to (total_tokens, num_heads, head_dim)
+                o = o_s.permute(1, 0, 2).contiguous()
+            else:
+                o = flash_attn_varlen_func(q, k, v,
+                                           max_seqlen_q=context.max_seqlen_q, cu_seqlens_q=context.cu_seqlens_q,
+                                           max_seqlen_k=context.max_seqlen_k, cu_seqlens_k=context.cu_seqlens_k,
+                                           softmax_scale=self.scale, causal=True)
         else:
             # verify/glue decode: multi-query with cu_seqlens_q (K+1 or variable per seq)
             verify_or_glue = (
