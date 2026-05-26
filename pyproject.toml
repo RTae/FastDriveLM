@@ -55,3 +55,4 @@ default = true
 torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 spas-sage-attn = { path = "spas_sage_attn", editable = true }
+sgl-kernel = { url = "https://github.com/sgl-project/whl/releases/download/v0.3.21/sgl_kernel-0.3.21+cu130-cp310-abi3-manylinux2014_x86_64.whl" }

@@ -547,7 +547,7 @@ requires-dist = [
     { name = "pycocoevalcap", specifier = ">=1.2" },
     { name = "rouge-score", specifier = ">=0.1.2" },
     { name = "scipy", specifier = ">=1.13.1" },
-    { name = "sgl-kernel", specifier = "==0.3.21" },
+    { name = "sgl-kernel", url = "https://github.com/sgl-project/whl/releases/download/v0.3.21/sgl_kernel-0.3.21+cu130-cp310-abi3-manylinux2014_x86_64.whl" },
     { name = "soundfile", specifier = "==0.13.1" },
     { name = "spas-sage-attn", editable = "spas_sage_attn" },
     { name = "tensorboard", specifier = ">=2.20.0" },
@@ -2201,10 +2201,9 @@ wheels = [
 [[package]]
 name = "sgl-kernel"
 version = "0.3.21"
-source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+source = { url = "https://github.com/sgl-project/whl/releases/download/v0.3.21/sgl_kernel-0.3.21+cu130-cp310-abi3-manylinux2014_x86_64.whl" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/eb/2b/f1aeca98bc856c14d870f1dcf38bca35cf84ffe58874c67402b0f862ed18/sgl_kernel-0.3.21-cp310-abi3-manylinux2014_aarch64.whl", hash = "sha256:bafdcc26e9ce1e9102b99e4186d652fefbafe5c22ea2cbb5ffe07b331e83be1f", size = 626572173, upload-time = "2026-01-15T03:48:32.615Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/36/9f/f836e126002c7cfcfe35418f6cff5a63fe3f529c609b334ca4775354b4d5/sgl_kernel-0.3.21-cp310-abi3-manylinux2014_x86_64.whl", hash = "sha256:57dfb3a2a3cd759f499c32e2bad5f6489b7c58f7f9a84ee00c53ec92d303aaab", size = 535601072, upload-time = "2026-01-14T05:41:11.594Z" },
+    { url = "https://github.com/sgl-project/whl/releases/download/v0.3.21/sgl_kernel-0.3.21+cu130-cp310-abi3-manylinux2014_x86_64.whl", hash = "sha256:9926bf2ccbfcbcec7d5ac2a1c13a5baa57bf2a3d3dd12095419a9398e2282a32" },
 ]
 
 [[package]]
