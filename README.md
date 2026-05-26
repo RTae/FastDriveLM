@@ -15,6 +15,11 @@ uv sync --no-install-local --no-build-isolation
 uv pip install --python .venv/bin/python -e ./spas_sage_attn
 ```
 
+3. Install vLLM (using uv add direclty didnt work)
+```bash
+uv pip install vllm --torch-backend=auto
+```
+
 ## How to enter the virtual environment
 ```bash
 source .venv/bin/activate
@@ -134,6 +139,20 @@ Both metrics files share the same keys:
 `ttft_sec`, `latency_sec`, `prefill_throughput_tok_per_sec`, `decode_throughput_tok_per_sec`,
 `end_to_end_throughput_tok_per_sec`, `runner_decode_throughput_tok_per_sec`,
 `avg_target_step_time_ms`, `avg_target_verify_time_ms`.
+
+4. vLLM (still testing)
+```bash
+python3 tools/inference_vllm.py \
+    --model-path outputs/qwen3vl \
+    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_vllm.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/metrics_vllm.json \
+    --attn-implementation flash_attention_2 \
+    --warmup-steps 2 \
+    --max-samples 20
+```
 
 ### Ablation study
 #### Baseline
