@@ -566,7 +566,7 @@ requires-dist = [
     { name = "pycocoevalcap", specifier = ">=1.2" },
     { name = "rouge-score", specifier = ">=0.1.2" },
     { name = "scipy", specifier = ">=1.13.1" },
-    { name = "sgl-kernel", url = "https://github.com/sgl-project/whl/releases/download/v0.3.14/sgl_kernel-0.3.14+cu128-cp310-abi3-manylinux2014_x86_64.whl" },
+    { name = "sgl-kernel", url = "https://github.com/sgl-project/whl/releases/download/v0.3.12/sgl_kernel-0.3.12+cu128-cp310-abi3-manylinux2014_x86_64.whl" },
     { name = "soundfile", specifier = "==0.13.1" },
     { name = "spas-sage-attn", editable = "spas_sage_attn" },
     { name = "tensorboard", specifier = ">=2.20.0" },
@@ -2557,10 +2557,10 @@ wheels = [
 
 [[package]]
 name = "sgl-kernel"
-version = "0.3.14"
-source = { url = "https://github.com/sgl-project/whl/releases/download/v0.3.14/sgl_kernel-0.3.14+cu128-cp310-abi3-manylinux2014_x86_64.whl" }
+version = "0.3.12"
+source = { url = "https://github.com/sgl-project/whl/releases/download/v0.3.12/sgl_kernel-0.3.12+cu128-cp310-abi3-manylinux2014_x86_64.whl" }
 wheels = [
-    { url = "https://github.com/sgl-project/whl/releases/download/v0.3.14/sgl_kernel-0.3.14+cu128-cp310-abi3-manylinux2014_x86_64.whl", hash = "sha256:401b0217614cd5b866ba8e47834881d5cb936baede80b8a25b86b7dd97970f13" },
+    { url = "https://github.com/sgl-project/whl/releases/download/v0.3.12/sgl_kernel-0.3.12+cu128-cp310-abi3-manylinux2014_x86_64.whl", hash = "sha256:c47b2205b709710d47f4fae4ea08e348a43c9f6d62e40b2a6e2091bf29f5a308" },
 ]
 
 [[package]]
