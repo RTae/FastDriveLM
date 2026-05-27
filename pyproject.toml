@@ -15,8 +15,8 @@ dependencies = [
     "soundfile==0.13.1",
     "pillow>=11.1.0",
     "scipy>=1.13.1",
-    "torch==2.5.1",
-    "torchvision==0.20.1",
+    "torch>2.5.1",
+    "torchvision>0.20.1",
     "backoff==2.2.1",
     "peft==0.15.1",
     "datasets>=4.8.5",
@@ -30,11 +30,10 @@ dependencies = [
     "tiktoken>=0.13.0",
     "xxhash>=3.7.0",
     "einops>=0.8.0",
-    "spas-sage-attn",
-    "sgl-kernel==0.3.12",
     "ninja>=1.13.0",
     "nvidia-cusparselt-cu12>=0.7.1",
     "vllm>=0.1.2",
+    "flash-attn>=2.8.3",
 ]
 
 [tool.setuptools.packages.find]
@@ -56,5 +55,3 @@ default = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
-spas-sage-attn = { path = "spas_sage_attn", editable = true }
-sgl-kernel = { url = "https://github.com/sgl-project/whl/releases/download/v0.3.12/sgl_kernel-0.3.12+cu128-cp310-abi3-manylinux2014_x86_64.whl" }

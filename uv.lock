@@ -527,6 +527,7 @@ dependencies = [
     { name = "datasets" },
     { name = "einops" },
     { name = "evaluate" },
+    { name = "flash-attn" },
     { name = "flashinfer-python" },
     { name = "ninja" },
     { name = "nltk" },
@@ -536,9 +537,7 @@ dependencies = [
     { name = "pycocoevalcap" },
     { name = "rouge-score" },
     { name = "scipy" },
-    { name = "sgl-kernel" },
     { name = "soundfile" },
-    { name = "spas-sage-attn" },
     { name = "tensorboard" },
     { name = "tiktoken" },
     { name = "torch" },
@@ -557,6 +556,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=4.8.5" },
     { name = "einops", specifier = ">=0.8.0" },
     { name = "evaluate", specifier = ">=0.4.6" },
+    { name = "flash-attn", specifier = ">=2.8.3" },
     { name = "flashinfer-python", specifier = ">=0.6.11.post3" },
     { name = "ninja", specifier = ">=1.13.0" },
     { name = "nltk", specifier = ">=3.9.4" },
@@ -566,13 +566,11 @@ requires-dist = [
     { name = "pycocoevalcap", specifier = ">=1.2" },
     { name = "rouge-score", specifier = ">=0.1.2" },
     { name = "scipy", specifier = ">=1.13.1" },
-    { name = "sgl-kernel", url = "https://github.com/sgl-project/whl/releases/download/v0.3.12/sgl_kernel-0.3.12+cu128-cp310-abi3-manylinux2014_x86_64.whl" },
     { name = "soundfile", specifier = "==0.13.1" },
-    { name = "spas-sage-attn", editable = "spas_sage_attn" },
     { name = "tensorboard", specifier = ">=2.20.0" },
     { name = "tiktoken", specifier = ">=0.13.0" },
-    { name = "torch", specifier = "==2.9.1", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torchvision", specifier = "==0.24.1", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torch", specifier = ">2.5.1", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchvision", specifier = ">0.20.1", index = "https://download.pytorch.org/whl/cu128" },
     { name = "transformers", specifier = ">=4.52.0" },
     { name = "vllm", specifier = ">=0.1.2" },
     { name = "wandb", specifier = ">=0.27.0" },
@@ -587,6 +585,16 @@ sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/b5/fe/997687a931ab51
 wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/81/47/dd9a212ef6e343a6857485ffe25bba537304f1913bdbed446a23f7f592e1/filelock-3.29.0-py3-none-any.whl", hash = "sha256:96f5f6344709aa1572bbf631c640e4ebeeb519e08da902c39a001882f30ac258", size = 39812, upload-time = "2026-04-19T15:39:08.752Z" },
 ]
+
+[[package]]
+name = "flash-attn"
+version = "2.8.3"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+dependencies = [
+    { name = "einops" },
+    { name = "torch" },
+]
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/3b/b2/8d76c41ad7974ee264754709c22963447f7f8134613fd9ce80984ed0dab7/flash_attn-2.8.3.tar.gz", hash = "sha256:1e71dd64a9e0280e0447b8a0c2541bad4bf6ac65bdeaa2f90e51a9e57de0370d", size = 8447812, upload-time = "2025-08-15T08:28:12.911Z" }
 
 [[package]]
 name = "flashinfer-python"
@@ -2556,14 +2564,6 @@ wheels = [
 ]
 
 [[package]]
-name = "sgl-kernel"
-version = "0.3.12"
-source = { url = "https://github.com/sgl-project/whl/releases/download/v0.3.12/sgl_kernel-0.3.12+cu128-cp310-abi3-manylinux2014_x86_64.whl" }
-wheels = [
-    { url = "https://github.com/sgl-project/whl/releases/download/v0.3.12/sgl_kernel-0.3.12+cu128-cp310-abi3-manylinux2014_x86_64.whl", hash = "sha256:c47b2205b709710d47f4fae4ea08e348a43c9f6d62e40b2a6e2091bf29f5a308" },
-]
-
-[[package]]
 name = "shellingham"
 version = "1.5.4"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -2616,25 +2616,6 @@ wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/57/5e/70bdd9579b35003a489fc850b5047beeda26328053ebadc1fb60f320f7db/soundfile-0.13.1-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:03267c4e493315294834a0870f31dbb3b28a95561b80b134f0bd3cf2d5f0e618", size = 1313646, upload-time = "2025-01-25T09:16:54.872Z" },
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/fe/df/8c11dc4dfceda14e3003bb81a0d0edcaaf0796dd7b4f826ea3e532146bba/soundfile-0.13.1-py2.py3-none-win32.whl", hash = "sha256:c734564fab7c5ddf8e9be5bf70bab68042cd17e9c214c06e365e20d64f9a69d5", size = 899881, upload-time = "2025-01-25T09:16:56.663Z" },
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/14/e9/6b761de83277f2f02ded7e7ea6f07828ec78e4b229b80e4ca55dd205b9dc/soundfile-0.13.1-py2.py3-none-win_amd64.whl", hash = "sha256:1e70a05a0626524a69e9f0f4dd2ec174b4e9567f4d8b6c11d38b5c289be36ee9", size = 1019162, upload-time = "2025-01-25T09:16:59.573Z" },
-]
-
-[[package]]
-name = "spas-sage-attn"
-version = "0.1.0"
-source = { editable = "spas_sage_attn" }
-dependencies = [
-    { name = "einops" },
-    { name = "numpy" },
-    { name = "torch" },
-    { name = "triton" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "einops" },
-    { name = "numpy" },
-    { name = "torch" },
-    { name = "triton" },
 ]
 
 [[package]]
