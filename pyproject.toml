@@ -15,8 +15,8 @@ dependencies = [
     "soundfile==0.13.1",
     "pillow>=11.1.0",
     "scipy>=1.13.1",
-    "torch==2.9.1",
-    "torchvision==0.24.1",
+    "torch==2.5.1",
+    "torchvision==0.20.1",
     "backoff==2.2.1",
     "peft==0.15.1",
     "datasets>=4.8.5",
@@ -57,4 +57,4 @@ default = true
 torch = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
 spas-sage-attn = { path = "spas_sage_attn", editable = true }
-sgl-kernel = { url = "https://github.com/sgl-project/whl/releases/download/v0.3.21/sgl_kernel-0.3.21+cu128-cp310-abi3-manylinux2014_x86_64.whl" }
+sgl-kernel = { url = "https://github.com/sgl-project/whl/releases/download/v0.3.12/sgl_kernel-0.3.12+cu128-cp310-abi3-manylinux2014_x86_64.whl" }
