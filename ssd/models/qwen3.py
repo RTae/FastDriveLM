@@ -33,7 +33,6 @@ class Qwen3Attention(nn.Module):
         draft_async: bool = False,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
@@ -86,7 +85,6 @@ class Qwen3Attention(nn.Module):
             draft_async=draft_async,
             F=async_fan_out,
             K=spec_k,
-            attn_backend=attn_backend,
             sparge_topk=sparge_topk,
         )
         self.q_norm = RMSHeadNorm(self.head_dim, eps=rms_norm_eps)
@@ -160,7 +158,6 @@ class Qwen3DecoderLayer(nn.Module):
         draft_async: bool,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__() 
@@ -186,7 +183,6 @@ class Qwen3DecoderLayer(nn.Module):
             draft_async=self.draft_async,
             tp_group=tp_group,
             tp_size=tp_size,
-            attn_backend=attn_backend,
             sparge_topk=sparge_topk,
         )
 
@@ -229,7 +225,6 @@ class Qwen3Model(nn.Module):
         draft_async: bool = False,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
@@ -255,7 +250,6 @@ class Qwen3Model(nn.Module):
                 draft_async=self.draft_async,
                 tp_group=tp_group,
                 tp_size=tp_size,
-                attn_backend=attn_backend,
                 sparge_topk=sparge_topk,
             )
             for _ in range(config.num_hidden_layers)
@@ -301,7 +295,6 @@ class Qwen3ForCausalLM(nn.Module):
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
         is_vlm: bool = False,
-        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
@@ -317,7 +310,7 @@ class Qwen3ForCausalLM(nn.Module):
         assert not (tp_group is None and self.tp_size > 1), "ERROR in Qwen3ForCausalLM: tp_group is None and tp_size > 1"
 
         print(f'Starting Qwen3ForCausalLM init, draft={draft}, speculate={speculate}, spec_k={spec_k}, is_vlm={is_vlm}')
-        self.model = Qwen3Model(config, draft, speculate, spec_k, async_fan_out, draft_async, tp_group=tp_group, tp_size=self.tp_size, attn_backend=attn_backend, sparge_topk=sparge_topk)
+        self.model = Qwen3Model(config, draft, speculate, spec_k, async_fan_out, draft_async, tp_group=tp_group, tp_size=self.tp_size, sparge_topk=sparge_topk)
         self.async_fan_out = async_fan_out
         self.lm_head = ParallelLMHead(
             config.vocab_size,

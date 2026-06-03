@@ -27,7 +27,6 @@ class CustomSDVLM(LLMEngine):
             speculate_k=spec_k,
             max_model_len=max_model_len,
             use_prefix_caching=False,
-            attn_backend="sparge_sage",
             enforce_eager=True,
             verbose=verbose,
             max_steps=max_steps,

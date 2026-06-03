@@ -172,7 +172,6 @@ class Attention(nn.Module):
         use_eagle: bool = False,
         F: int = 1,
         K: int = 1,
-        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ):
         super().__init__()
@@ -189,7 +188,6 @@ class Attention(nn.Module):
         self.F = F # async_fan_out
         self.K = K # speculate_k
         self.only_prefill_wrapper = None
-        self.attn_backend = attn_backend
         self.sparge_topk = sparge_topk
 
     def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
@@ -210,46 +208,30 @@ class Attention(nn.Module):
 
             k, v = k.view(-1, self.num_kv_heads, self.head_dim), v.view(-1, self.num_kv_heads, self.head_dim)
 
-            if self.attn_backend in ("sparge", "sparge_sage"):
-                from spas_sage_attn import spas_sage2_attn_meansim_topk_cuda
-                if (
-                    context.cu_seqlens_q is not None
-                    and context.cu_seqlens_k is not None
-                    and context.cu_seqlens_q.numel() == 2
-                    and context.cu_seqlens_k.numel() == 2
-                    and context.block_tables is None
-                ):
-                    q_s = q.unsqueeze(0).contiguous()
-                    k_s = k.unsqueeze(0).contiguous()
-                    v_s = v.unsqueeze(0).contiguous()
-                    if self.num_heads != self.num_kv_heads:
-                        kv_repeat = self.num_heads // self.num_kv_heads
-                        k_s = k_s.repeat_interleave(kv_repeat, dim=2)
-                        v_s = v_s.repeat_interleave(kv_repeat, dim=2)
-                    o = spas_sage2_attn_meansim_topk_cuda(
-                        q_s,
-                        k_s,
-                        v_s,
-                        is_causal=True,
-                        tensor_layout="NHD",
-                        topk=self.sparge_topk,
-                        pvthreshd=50.0,
-                    ).squeeze(0)
-                else:
-                    from sageattention import sageattn_varlen
-
-                    o = sageattn_varlen(
-                        q,
-                        k,
-                        v,
-                        cu_seqlens_q=context.cu_seqlens_q,
-                        cu_seqlens_k=context.cu_seqlens_k,
-                        max_seqlen_q=context.max_seqlen_q,
-                        max_seqlen_k=context.max_seqlen_k,
-                        is_causal=True,
-                        tensor_layout="NHD",
-                        sm_scale=self.scale,
-                    )
+            from spas_sage_attn import spas_sage2_attn_meansim_topk_cuda
+            if (
+                context.cu_seqlens_q is not None
+                and context.cu_seqlens_k is not None
+                and context.cu_seqlens_q.numel() == 2
+                and context.cu_seqlens_k.numel() == 2
+                and context.block_tables is None
+            ):
+                q_s = q.unsqueeze(0).contiguous()
+                k_s = k.unsqueeze(0).contiguous()
+                v_s = v.unsqueeze(0).contiguous()
+                if self.num_heads != self.num_kv_heads:
+                    kv_repeat = self.num_heads // self.num_kv_heads
+                    k_s = k_s.repeat_interleave(kv_repeat, dim=2)
+                    v_s = v_s.repeat_interleave(kv_repeat, dim=2)
+                o = spas_sage2_attn_meansim_topk_cuda(
+                    q_s,
+                    k_s,
+                    v_s,
+                    is_causal=True,
+                    tensor_layout="NHD",
+                    topk=self.sparge_topk,
+                    pvthreshd=50.0,
+                ).squeeze(0)
             else:
                 from sageattention import sageattn_varlen
 
