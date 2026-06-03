@@ -103,6 +103,7 @@ Suggested vLLM run modes:
 
 Optional runtime features:
 
+- `--attn-backend auto|FLASH_ATTN|FLASHINFER|TRITON_ATTN|FLEX_ATTENTION`: explicitly select the vLLM attention backend.
 - `--use-prefix-caching` / `--no-use-prefix-caching`: explicitly enable or disable vLLM prefix caching.
 - `--enable-speculative-decoding --speculative-method ngram --spec-k <int>`: enable ngram-based speculative decoding.
 - `--enable-speculative-decoding --speculative-method draft_model --draft-model <path> --spec-k <int>`: enable draft-model speculative decoding when the installed vLLM build and model type support it.
@@ -116,6 +117,8 @@ Current status with `vllm 0.19.1`:
 - draft-model speculative decoding is not supported for multimodal models such as Qwen3-VL
 - `suffix` speculative decoding requires `arctic-inference==0.1.1`
 
+If you want to force FlashAttention instead of letting vLLM auto-select, add `--attn-backend FLASH_ATTN` to any of the commands below.
+
 #### vLLM base
 
 Plain vLLM smoke test.
@@ -123,6 +126,7 @@ Plain vLLM smoke test.
 ```bash
 python tools/inference_sd_vlm_vllm.py \
     --target-model outputs/qwen3vl \
+    --attn-backend FLASH_ATTN \
     --data datasets/DriveLM_nuScenes/split/val \
     --output outputs/qwen3vl/infer_results_sd_vlm_vllm_base_smoke.json \
     --metrics \

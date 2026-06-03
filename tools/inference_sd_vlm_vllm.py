@@ -328,6 +328,16 @@ def _build_speculative_config(args) -> dict | None:
     raise ValueError(f"Unsupported speculative method: {args.speculative_method}")
 
 
+def _build_attention_config(args):
+    if args.attn_backend == "auto":
+        return None
+
+    from vllm.config.attention import AttentionConfig
+    from vllm.v1.attention.backends.registry import AttentionBackendEnum
+
+    return AttentionConfig(backend=AttentionBackendEnum[args.attn_backend])
+
+
 def _validate_speculative_support(target_model_reference: str, speculative_config: dict | None) -> None:
     if speculative_config is None:
         return
@@ -422,6 +432,8 @@ def parse_args():
     parser.add_argument("--metrics-output", default=None, help="Optional JSON path for aggregate and per-sample metrics")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.9, help="vLLM GPU memory utilization")
     parser.add_argument("--dtype", choices=["auto", "float16", "bfloat16", "float32"], default="auto", help="vLLM dtype")
+    parser.add_argument("--attn-backend", choices=["auto", "FLASH_ATTN", "FLASHINFER", "TRITON_ATTN", "FLEX_ATTENTION"],
+                        default="auto", help="Explicitly select the vLLM attention backend; auto lets vLLM choose")
     parser.add_argument("--use-prefix-caching", action=argparse.BooleanOptionalAction, default=None,
                         help="Enable or disable vLLM prefix caching; omitted uses the vLLM default")
     parser.add_argument("--max-lora-rank", type=int, default=64, help="Maximum LoRA rank exposed to vLLM")
@@ -453,6 +465,7 @@ def main():
     )
     generation_config = _load_generation_config(processor_source)
     sampling_params = _build_sampling_params(args, generation_config)
+    attention_config = _build_attention_config(args)
 
     llm_kwargs = {
         "model": model_reference,
@@ -463,6 +476,7 @@ def main():
         "max_model_len": args.max_model_len,
         "gpu_memory_utilization": args.gpu_memory_utilization,
         "max_num_seqs": args.max_num_seqs,
+        "attention_config": attention_config,
         "enable_prefix_caching": args.use_prefix_caching,
         "speculative_config": speculative_config,
         "enforce_eager": args.enforce_eager,
