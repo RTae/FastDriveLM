@@ -31,16 +31,12 @@ dependencies = [
     "einops>=0.8.0",
     "ninja>=1.13.0",
     "nvidia-cusparselt-cu12>=0.7.1",
-    "vllm>=0.22.0",
+    "vllm>=0.8.0",
     "flash-attn>=2.8.3",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -54,3 +50,4 @@ default = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
+flash-attn = { url = "https://github.com/lesj0610/flash-attention/releases/download/v2.8.3-cu12-torch2.10-cp312/flash_attn-2.8.3+cu12torch2.10cxx11abiTRUE-cp312-cp312-linux_x86_64.whl" }
