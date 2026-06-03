@@ -32,6 +32,7 @@ dependencies = [
     "ninja>=1.13.0",
     "nvidia-cusparselt-cu12>=0.7.1",
     "vllm>=0.8.0",
+    "arctic-inference>=0.1.2",
 ]
 
 [tool.setuptools.packages.find]
