@@ -72,8 +72,8 @@ class Config:
 
     # Ablation study flags
     use_prefix_caching: bool = True
-    attn_backend: str = "flash"   # valid values: "flash", "sparge"
-    sparge_topk: float = 0.5      # SpargeAttn sparsity ratio (ignored when attn_backend != "sparge")
+    attn_backend: str = "sage"   # valid values: "sparge", "sage", "sparge_sage"
+    sparge_topk: float = 0.5      # SpargeAttn sparsity ratio (ignored when attn_backend not in {"sparge", "sparge_sage"})
 
     # Debugging
     verbose: bool = False 
@@ -129,9 +129,8 @@ class Config:
         
         assert self.max_num_batched_tokens >= self.max_model_len
 
-        assert self.attn_backend in ("flash", "sparge"), \
-            f"attn_backend must be 'flash' or 'sparge', got {self.attn_backend!r}"
-        if self.attn_backend == "sparge":
-            self.use_prefix_caching = False
+        assert self.attn_backend in ("sparge", "sage", "sparge_sage"), \
+            f"attn_backend must be 'sparge', 'sage', or 'sparge_sage', got {self.attn_backend!r}"
+        self.use_prefix_caching = False
         if self.is_vlm:
             self.use_prefix_caching = False

@@ -77,6 +77,8 @@ class Qwen3VisionEncoder(nn.Module):
         """
         pixel_values = pixel_values.to(dtype=self.dtype)
         image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
+        if isinstance(image_embeds, tuple):
+            image_embeds = image_embeds[0]
         if hasattr(image_embeds, "pooler_output"):
             image_embeds = image_embeds.pooler_output
             if isinstance(image_embeds, (list, tuple)):

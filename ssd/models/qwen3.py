@@ -33,7 +33,7 @@ class Qwen3Attention(nn.Module):
         draft_async: bool = False,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "flash",
+        attn_backend: str = "sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
@@ -160,7 +160,7 @@ class Qwen3DecoderLayer(nn.Module):
         draft_async: bool,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "flash",
+        attn_backend: str = "sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__() 
@@ -229,7 +229,7 @@ class Qwen3Model(nn.Module):
         draft_async: bool = False,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "flash",
+        attn_backend: str = "sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
@@ -301,7 +301,7 @@ class Qwen3ForCausalLM(nn.Module):
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
         is_vlm: bool = False,
-        attn_backend: str = "flash",
+        attn_backend: str = "sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()

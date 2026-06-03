@@ -37,13 +37,13 @@ def precision_metric(quant_o, fa2_o, verbose=True, round_num=4):
 
 def hyperparameter_check(hyper, H, device):
     if type(hyper) == float or type(hyper) == int:
-        hyper = torch.full((H,), float(hyper), device=device)
+        hyper = torch.full((H,), float(hyper), device=device, dtype=torch.float32)
     elif isinstance(hyper, Tensor):
         assert len(hyper.shape) <= 1, "Hyperparameter tensor must be 1D"
         if len(hyper.shape) == 0:
-            hyper = torch.full((H,), hyper.item(), device=device)
+            hyper = torch.full((H,), float(hyper.item()), device=device, dtype=torch.float32)
         assert hyper.numel() == H, f"Hyperparameter tensor must have {H} elements, but has {hyper.numel()}"
-        hyper = hyper.to(device)
+        hyper = hyper.to(device=device, dtype=torch.float32)
     else:
         print(hyper)
         raise ValueError("Hyperparameter must be a float or a tensor")
