@@ -480,6 +480,7 @@ def main():
         "enable_prefix_caching": args.use_prefix_caching,
         "speculative_config": speculative_config,
         "enforce_eager": args.enforce_eager,
+        "disable_log_stats": not (args.metrics or args.metrics_output),
     }
     llm = LLM(**_filter_llm_kwargs(LLM, llm_kwargs))
 
