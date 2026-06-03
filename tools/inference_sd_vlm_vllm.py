@@ -1,6 +1,8 @@
 import argparse
 import inspect
 import json
+import multiprocessing as mp
+import os
 import shutil
 import sys
 import time
@@ -237,6 +239,13 @@ def _filter_llm_kwargs(llm_cls, kwargs: dict) -> dict:
     return {key: value for key, value in kwargs.items() if key in accepted and value is not None}
 
 
+def _ensure_spawn_start_method() -> None:
+    os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+    current = mp.get_start_method(allow_none=True)
+    if current != "spawn":
+        mp.set_start_method("spawn", force=True)
+
+
 def _derive_ttft_sec(request_output, started: float, finished: float) -> float:
     metrics = getattr(request_output, "metrics", None)
     first_token_time = _metric_attr(metrics, "first_token_time", "first_token_ts")
@@ -298,6 +307,8 @@ def parse_args():
 
 
 def main():
+    _ensure_spawn_start_method()
+
     args = parse_args()
     if args.draft_model:
         print("[inference_sd_vlm_vllm] ignoring --draft-model: installed vLLM does not expose SSD-style speculative decoding", flush=True)

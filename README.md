@@ -7,7 +7,8 @@
 ## Installation
 1. Install Python dependencies and set up virtual environment
 ```bash
-uv sync --no-install-local --no-build-isolation
+uv sync
+uv pip install flash-attn --no-build-isolation
 ```
 
 2. Install SpasSageAttn for the SpargeAttn backend

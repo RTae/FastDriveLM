@@ -17,6 +17,7 @@ limitations under the License.
 import os
 from pathlib import Path
 import subprocess
+import sys
 from packaging.version import parse, Version
 from typing import List, Set
 import warnings
@@ -27,9 +28,15 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension, CUDA_HOME
 
 HAS_SM90 = False
 SAGE2PP_ENABLED = True
+ROOT_DIR = Path(__file__).resolve().parent
+SPAS_DIR = ROOT_DIR / "spas_sage_attn"
+
+
+def _spas_path(*parts: str) -> Path:
+    return SPAS_DIR.joinpath(*parts)
 
 def run_instantiations(src_dir: str):
-    base_path = Path(src_dir)
+    base_path = _spas_path(src_dir)
     py_files = [
         path for path in base_path.rglob('*.py')
         if path.is_file()
@@ -37,13 +44,13 @@ def run_instantiations(src_dir: str):
 
     for py_file in py_files:
         print(f"Running: {py_file}")
-        os.system(f"python {py_file}")
+        subprocess.check_call([sys.executable, str(py_file)], cwd=SPAS_DIR)
 
 def get_instantiations(src_dir: str):
     # get all .cu files under src_dir
-    base_path = Path(src_dir)
+    base_path = _spas_path(src_dir)
     return [
-        os.path.join(src_dir, str(path.relative_to(base_path)))
+        str(path)
         for path in base_path.rglob('*')
         if path.is_file() and path.suffix == ".cu"
     ]
@@ -174,13 +181,13 @@ run_instantiations("csrc/qattn/instantiations_sm89")
 run_instantiations("csrc/qattn/instantiations_sm90")
 
 sources = [
-    "csrc/qattn/pybind.cpp",
-    "csrc/qattn/qk_int_sv_f16_cuda_sm80.cu",
-    "csrc/qattn/qk_int_sv_f8_cuda_sm89.cu",
+    str(_spas_path("csrc", "qattn", "pybind.cpp")),
+    str(_spas_path("csrc", "qattn", "qk_int_sv_f16_cuda_sm80.cu")),
+    str(_spas_path("csrc", "qattn", "qk_int_sv_f8_cuda_sm89.cu")),
 ] + get_instantiations("csrc/qattn/instantiations_sm80") + get_instantiations("csrc/qattn/instantiations_sm89")
 
 if HAS_SM90:
-    sources += ["csrc/qattn/qk_int_sv_f8_cuda_sm90.cu", ]
+    sources += [str(_spas_path("csrc", "qattn", "qk_int_sv_f8_cuda_sm90.cu"))]
     sources += get_instantiations("csrc/qattn/instantiations_sm90")
 
 qattn_extension = CUDAExtension(
@@ -196,7 +203,10 @@ ext_modules.append(qattn_extension)
 
 fused_extension = CUDAExtension(
     name="spas_sage_attn._fused",
-    sources=["csrc/fused/pybind.cpp", "csrc/fused/fused.cu"],
+    sources=[
+        str(_spas_path("csrc", "fused", "pybind.cpp")),
+        str(_spas_path("csrc", "fused", "fused.cu")),
+    ],
     extra_compile_args={
         "cxx": CXX_FLAGS,
         "nvcc": NVCC_FLAGS,
@@ -211,7 +221,7 @@ setup(
     author_email='jt-zhang6@gmail.com', 
     packages=find_packages(),  
     description='Accurate and efficient Sparse SageAttention.',  
-    long_description=open('README.md', encoding='utf-8').read(),  
+    long_description=(ROOT_DIR / 'README.md').read_text(encoding='utf-8'),  
     long_description_content_type='text/markdown', 
     url='https://github.com/thu-ml/SpargeAttn', 
     license='BSD 3-Clause License', 
