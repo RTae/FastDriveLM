@@ -94,13 +94,6 @@ export LD_LIBRARY_PATH="$PWD/.venv/lib/python3.12/site-packages/nvidia/cu13/lib:
 `tools/inference_sd_vlm_vllm.py` is the main vLLM entrypoint for this repo.
 It runs plain vLLM inference on the target model.
 
-Suggested vLLM run modes:
-
-- `vllm base`: plain vLLM with no explicit prefix caching or speculative decoding flags
-- `vllm prefix`: plain vLLM with `--use-prefix-caching`
-- `vllm spec`: ngram speculative decoding without explicit prefix caching
-- `vllm full`: ngram speculative decoding with `--use-prefix-caching`
-
 Optional runtime features:
 
 - `--attn-backend auto|FLASH_ATTN|FLASHINFER|TRITON_ATTN|FLEX_ATTENTION`: explicitly select the vLLM attention backend.
@@ -117,11 +110,9 @@ Current status with `vllm 0.19.1`:
 - draft-model speculative decoding is not supported for multimodal models such as Qwen3-VL
 - `suffix` speculative decoding requires `arctic-inference==0.1.1`
 
-If you want to force FlashAttention instead of letting vLLM auto-select, add `--attn-backend FLASH_ATTN` to any of the commands below.
+#### Main smoke test
 
-#### vLLM base
-
-Plain vLLM smoke test.
+Plain vLLM smoke test with an explicit FlashAttention backend.
 
 ```bash
 python tools/inference_sd_vlm_vllm.py \
@@ -135,59 +126,49 @@ python tools/inference_sd_vlm_vllm.py \
     --max-new-tokens 64
 ```
 
-#### vLLM prefix
+#### Main full test
 
-Plain vLLM with explicit prefix caching.
+Run the same script on the full validation split.
 
 ```bash
 python tools/inference_sd_vlm_vllm.py \
     --target-model outputs/qwen3vl \
-    --use-prefix-caching \
+    --attn-backend FLASH_ATTN \
     --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_prefix_smoke.json \
+    --output outputs/qwen3vl/infer_results_sd_vlm_vllm.json \
     --metrics \
-    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_prefix_smoke.json \
+    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm.json \
+    --max-new-tokens 128
+```
+
+### Ablation runner
+
+Use `tools/run_vllm_ablation.py` when you want the four common ablation modes without manually typing each command.
+
+```bash
+python tools/run_vllm_ablation.py \
+    --target-model outputs/qwen3vl \
+    --attn-backend FLASH_ATTN \
+    --run-label smoke \
     --max-samples 10 \
     --max-new-tokens 64
 ```
 
-#### vLLM spec
+This runs the following modes into `outputs/qwen3vl/`:
 
-Ngram speculative decoding without explicit prefix caching.
+- `base`: plain vLLM
+- `prefix`: plain vLLM with `--use-prefix-caching`
+- `spec`: ngram speculative decoding
+- `full`: ngram speculative decoding with `--use-prefix-caching`
 
-```bash
-python tools/inference_sd_vlm_vllm.py \
-    --target-model outputs/qwen3vl \
-    --enable-speculative-decoding \
-    --speculative-method ngram \
-    --spec-k 2 \
-    --prompt-lookup-min 2 \
-    --prompt-lookup-max 4 \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_spec_smoke.json \
-    --metrics \
-    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_spec_smoke.json \
-    --max-samples 10 \
-    --max-new-tokens 64
-```
-
-#### vLLM full
-
-Ngram speculative decoding with explicit prefix caching.
+You can also run only a subset:
 
 ```bash
-python tools/inference_sd_vlm_vllm.py \
+python tools/run_vllm_ablation.py \
     --target-model outputs/qwen3vl \
-    --enable-speculative-decoding \
-    --speculative-method ngram \
-    --spec-k 2 \
-    --prompt-lookup-min 2 \
-    --prompt-lookup-max 4 \
-    --use-prefix-caching \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_full_smoke.json \
-    --metrics \
-    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_full_smoke.json \
+    --modes prefix full \
+    --attn-backend FLASH_ATTN \
+    --run-label smoke \
     --max-samples 10 \
     --max-new-tokens 64
 ```
@@ -229,7 +210,7 @@ python tools/inference.py \
 
 ### Compare the new vLLM script against the baseline
 
-The new vLLM script and the baseline script write metrics in the same JSON schema, so you can compare the `summary` blocks directly.
+The new vLLM script and the baseline script write metrics in the same JSON schema, so you can compare the `summary` blocks directly. The example below compares the `full` ablation mode against the baseline smoke test.
 
 ```bash
 python - <<'PY'
@@ -239,7 +220,7 @@ def load(path):
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)["summary"]
 
-new_vllm = load("outputs/qwen3vl/metrics_sd_vlm_vllm_smoke.json")
+new_vllm = load("outputs/qwen3vl/metrics_sd_vlm_vllm_full_smoke.json")
 baseline = load("outputs/qwen3vl/metrics_baseline_smoke.json")
 keys = [k for k in new_vllm if k != "num_samples"]
 print(f"{'metric':<45} {'new_vllm':>14} {'baseline':>14}")
