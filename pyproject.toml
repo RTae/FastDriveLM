@@ -35,6 +35,15 @@ dependencies = [
     "arctic-inference>=0.1.2",
 ]
 
+[project.optional-dependencies]
+sparse-attn = [
+    "spas-sage-attn",
+]
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -50,3 +59,8 @@ default = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
+spas-sage-attn = { path = "spas_sage_attn", editable = true }
+
+[tool.uv.extra-build-dependencies]
+fastdrivelm = ["torch", "ninja"]
+spas-sage-attn = ["torch", "ninja"]
