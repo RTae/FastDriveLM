@@ -309,13 +309,11 @@ def _build_sample_metrics(request_output, started: float, finished: float) -> di
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="DriveLM inference with vLLM using SSD-style CLI")
+    parser = argparse.ArgumentParser(description="DriveLM inference with vLLM")
     parser.add_argument("--target-model", default="outputs/qwen3vl", help="Target model or adapter directory")
-    parser.add_argument("--draft-model", default="outputs/qwen3vl_draft", help="Accepted for CLI compatibility; ignored by this vLLM script")
     parser.add_argument("--data", default="datasets/DriveLM_nuScenes/split/val", help="Dataset path created by load_from_disk")
     parser.add_argument("--output", default="outputs/qwen3vl/infer_results_sd_vlm_vllm.json", help="Output JSON path")
     parser.add_argument("--max-new-tokens", type=int, default=128, help="Max new tokens per sample")
-    parser.add_argument("--spec-k", type=int, default=4, help="Accepted for CLI compatibility; ignored by this vLLM script")
     parser.add_argument("--num-gpus", type=int, default=1, help="Number of GPUs for vLLM tensor parallelism")
     parser.add_argument("--max-model-len", type=int, default=16384, help="Maximum model length")
     parser.add_argument("--start-index", type=int, default=0, help="Start sample index")
@@ -334,10 +332,6 @@ def main():
     _ensure_spawn_start_method()
 
     args = parse_args()
-    if args.draft_model:
-        print("[inference_sd_vlm_vllm] ignoring --draft-model: installed vLLM does not expose SSD-style speculative decoding", flush=True)
-    if args.spec_k != 4:
-        print("[inference_sd_vlm_vllm] ignoring --spec-k: installed vLLM does not expose SSD-style speculative decoding", flush=True)
 
     model_reference, lora_path, processor_source = _resolve_model_and_lora(args.target_model)
     if lora_path is not None:

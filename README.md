@@ -10,7 +10,7 @@
 uv sync
 ```
 
-2. Install SpasSageAttn for the SpargeAttn backend
+2. Optional: install `spas_sage_attn` only if you still want to run the legacy SSD/SpargeAttn path
 ```bash
 uv pip install --python .venv/bin/python -e ./spas_sage_attn
 ```
@@ -80,205 +80,108 @@ after running this script, the data will be organized as follows:
 
 ## Run inference
 
-### Performance comparison
+### Runtime environment for vLLM
 
-Both scripts write metrics in the same JSON schema, so you can compare them directly.
+Use the project virtual environment and export the CUDA/Torch library paths before running either vLLM script.
 
-1. Run standard HuggingFace inference and save metrics:
+```bash
+export PATH="$PWD/.venv/bin:$PATH"
+export LD_LIBRARY_PATH="$PWD/.venv/lib/python3.12/site-packages/nvidia/cu13/lib:$PWD/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:$PWD/.venv/lib/python3.12/site-packages/torch/lib:${LD_LIBRARY_PATH:-}"
+```
+
+### vLLM script
+
+`tools/inference_sd_vlm_vllm.py` is the main vLLM entrypoint for this repo.
+It runs plain vLLM inference on the target model.
+
+#### Smoke test
+
+Use 10 validation samples and a non-trivial generation limit.
+
+```bash
+python tools/inference_sd_vlm_vllm.py \
+    --target-model outputs/qwen3vl \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_smoke.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_smoke.json \
+    --max-samples 10 \
+    --max-new-tokens 64
+```
+
+#### Full test
+
+Use the full validation split with the regular generation budget.
+
+```bash
+python tools/inference_sd_vlm_vllm.py \
+    --target-model outputs/qwen3vl \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_full.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_full.json \
+    --max-new-tokens 128
+```
+
+### Baseline script
+
+`tools/inference.py` is the baseline runner.
+
+#### Smoke test
 
 ```bash
 python tools/inference.py \
     --model-path outputs/qwen3vl \
     --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
     --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results.json \
+    --output outputs/qwen3vl/infer_results_baseline_smoke.json \
     --metrics \
+    --metrics-output outputs/qwen3vl/metrics_baseline_smoke.json \
     --max-samples 10 \
-    --metrics-output outputs/qwen3vl/metrics_baseline.json
+    --max-new-tokens 64
 ```
 
-2. Run SSD speculative-decoding inference and save metrics:
+#### Full test
 
 ```bash
-python tools/inference_ssd_vlm.py \
-    --target-model outputs/qwen3vl \
-    --draft-model outputs/qwen3vl_draft \
+python tools/inference.py \
+    --model-path outputs/qwen3vl \
+    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
     --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_ssd.json \
+    --output outputs/qwen3vl/infer_results_baseline_full.json \
     --metrics \
-    --max-samples 10 \
-    --metrics-output outputs/qwen3vl/metrics_ssd.json
+    --metrics-output outputs/qwen3vl/metrics_baseline_full.json \
+    --max-new-tokens 128
 ```
 
-3. Compare the two `summary` blocks side by side:
+### Compare the new vLLM script against the baseline
+
+The new vLLM script and the baseline script write metrics in the same JSON schema, so you can compare the `summary` blocks directly.
 
 ```bash
 python - <<'PY'
-import json, sys
+import json
 
 def load(path):
-    with open(path) as f:
+    with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)["summary"]
 
-a = load("outputs/qwen3vl/metrics_baseline.json")
-b = load("outputs/qwen3vl/metrics_ssd.json")
-keys = [k for k in a if k != "num_samples"]
-print(f"{'metric':<45} {'baseline':>14} {'ssd':>14}")
-print("-" * 75)
-for k in keys:
-    print(f"{k:<45} {a[k]:>14.4f} {b[k]:>14.4f}")
+new_vllm = load("outputs/qwen3vl/metrics_sd_vlm_vllm_smoke.json")
+baseline = load("outputs/qwen3vl/metrics_baseline_smoke.json")
+keys = [k for k in new_vllm if k != "num_samples"]
+print(f"{'metric':<45} {'new_vllm':>14} {'baseline':>14}")
+print("-" * 79)
+for key in keys:
+    print(f"{key:<45} {new_vllm[key]:>14.4f} {baseline[key]:>14.4f}")
 PY
 ```
 
-Both metrics files share the same keys:
-`ttft_sec`, `latency_sec`, `prefill_throughput_tok_per_sec`, `decode_throughput_tok_per_sec`,
-`end_to_end_throughput_tok_per_sec`, `runner_decode_throughput_tok_per_sec`,
-`avg_target_step_time_ms`, `avg_target_verify_time_ms`.
+`tools/inference_vllm.py` is still available as a separate pure-vLLM reference script, but the intended comparison here is:
 
-4. vLLM (still testing)
-```bash
-python3 tools/inference_vllm.py \
-    --model-path outputs/qwen3vl \
-    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_vllm.json \
-    --metrics \
-    --metrics-output outputs/qwen3vl/metrics_vllm.json \
-    --attn-implementation flash_attention_2 \
-    --warmup-steps 2 \
-    --max-samples 20
-```
+- baseline: `tools/inference.py`
+- new vLLM path: `tools/inference_sd_vlm_vllm.py`
 
-### Ablation study
-#### Baseline
-
-`inference.py` exposes three feature flags for ablation experiments:
-
-| Flag | Type | Default | Effect |
-|------|------|---------|--------|
-| `--attn-implementation` | choice | `auto` | Switch attention backend: `eager`, `sdpa`, or `flash_attention_2` |
-| `--torch-compile` | flag | off | Wrap the model with `torch.compile` before inference |
-| `--warmup-steps N` | int | `0` | Exclude the first N samples from aggregate metrics (GPU warm-up) |
-
-**Example — compare attention backends:**
-
-```bash
-for ATTN in eager sdpa flash_attention_2; do
-  python tools/inference.py \
-      --model-path outputs/qwen3vl \
-      --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
-      --data datasets/DriveLM_nuScenes/split/val \
-      --output outputs/qwen3vl/infer_results_${ATTN}.json \
-      --metrics \
-      --metrics-output outputs/qwen3vl/metrics_${ATTN}.json \
-      --attn-implementation $ATTN \
-      --warmup-steps 2 \
-      --max-samples 20
-done
-```
-
-**Example — measure the effect of `torch.compile`:**
-
-```bash
-# Without compile
-python tools/inference.py \
-    --model-path outputs/qwen3vl \
-    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_no_compile.json \
-    --metrics --metrics-output outputs/qwen3vl/metrics_no_compile.json \
-    --warmup-steps 2 --max-samples 20
-
-# With compile
-python tools/inference.py \
-    --model-path outputs/qwen3vl \
-    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_compile.json \
-    --metrics --metrics-output outputs/qwen3vl/metrics_compile.json \
-    --torch-compile \
-    --warmup-steps 2 --max-samples 20
-```
-
-> **Note on `--warmup-steps`:** per-sample metrics are always saved for every sample; only the aggregate `summary` excludes the first N samples, so you can still inspect the warm-up entries in the JSON output.
-
-#### SSD
-
-`inference_ssd_vlm.py` exposes three feature flags for ablation experiments:
-
-| Flag | Type | Default | Effect |
-|------|------|---------|--------|
-| `--attn-backend` | choice | `flash` | Attention backend: `flash` or `sparge` (SpargeAttn sparse attention) |
-| `--use-prefix-caching` / `--no-prefix-caching` | flag | on | Enable/disable prefix (KV) caching. Automatically disabled when `--attn-backend=sparge` |
-| `--sparge-topk K` | float | `0.5` | SpargeAttn sparsity ratio in (0, 1]. Only used with `--attn-backend sparge` |
-| `--warmup-steps N` | int | `0` | Exclude the first N samples from aggregate metrics (GPU warm-up) |
-
-**Example — compare attention backends:**
-
-```bash
-for ATTN in flash sparge; do
-  python tools/inference_ssd_vlm.py \
-      --target-model outputs/qwen3vl \
-      --draft-model outputs/qwen3vl_draft \
-      --data datasets/DriveLM_nuScenes/split/val \
-      --output outputs/qwen3vl/infer_results_ssd_${ATTN}.json \
-      --metrics \
-      --metrics-output outputs/qwen3vl/metrics_ssd_${ATTN}.json \
-      --attn-backend $ATTN \
-      --warmup-steps 2 \
-      --max-samples 20
-done
-```
-
-**Example — measure the effect of prefix caching:**
-
-```bash
-# Without prefix caching
-python tools/inference_ssd_vlm.py \
-    --target-model outputs/qwen3vl \
-    --draft-model outputs/qwen3vl_draft \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_ssd_no_cache.json \
-    --metrics --metrics-output outputs/qwen3vl/metrics_ssd_no_cache.json \
-    --no-prefix-caching \
-    --warmup-steps 2 --max-samples 20
-
-# With prefix caching (default)
-python tools/inference_ssd_vlm.py \
-    --target-model outputs/qwen3vl \
-    --draft-model outputs/qwen3vl_draft \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_ssd_cache.json \
-    --metrics --metrics-output outputs/qwen3vl/metrics_ssd_cache.json \
-    --use-prefix-caching \
-    --warmup-steps 2 --max-samples 20
-```
-
-**Example — sweep SpargeAttn sparsity ratios:**
-
-```bash
-for TOPK in 0.3 0.5 0.7; do
-  python tools/inference_ssd_vlm.py \
-      --target-model outputs/qwen3vl \
-      --draft-model outputs/qwen3vl_draft \
-      --data datasets/DriveLM_nuScenes/split/val \
-      --output outputs/qwen3vl/infer_results_ssd_sparge${TOPK}.json \
-      --metrics \
-      --metrics-output outputs/qwen3vl/metrics_ssd_sparge${TOPK}.json \
-      --attn-backend sparge \
-      --sparge-topk $TOPK \
-      --warmup-steps 2 \
-      --max-samples 20
-done
-```
-
-Or use the Makefile shortcut for a standard run:
-
-```bash
-make inference_ssd_vlm
-# or override models:
-make inference_ssd_vlm OUTPUT_MODEL=./outputs/qwen3vl DRAFT_MODEL=./outputs/qwen3vl_draft
-```
+The `tools/inference_sd_vlm_vllm.py` script is currently the plain vLLM path. SD, caching, and sparse-attention-specific behavior are no longer part of the documented interface.
 
 ## Evaluate
 
