@@ -10,7 +10,7 @@
 uv sync
 ```
 
-2. Optional: install `spas_sage_attn` only if you still want to run the legacy SSD/SpargeAttn path
+2. Optional: install the local sparse-attention extension if you want the custom speculative VLM path with SpargeAttn prefill
 
 Preferred `uv` path:
 
@@ -26,8 +26,9 @@ uv pip install --python .venv/bin/python -e ./spas_sage_attn
 
 Notes:
 
-- `spas_sage_attn` is optional for the current vLLM workflow.
-- The current main vLLM path in this repo does not require `spas_sage_attn`.
+- `spas_sage_attn` is not needed for the plain vLLM workflow.
+- `spas_sage_attn` is needed for the custom speculative VLM path documented below.
+- `sageattention==1.0.6` is part of the main project dependencies and is used for decode and verify in the custom speculative VLM path.
 - Building the sparse-attention extension needs CUDA, `torch`, `ninja`, and enough free disk space for temporary build artifacts.
 
 ## How to enter the virtual environment
@@ -95,6 +96,13 @@ after running this script, the data will be organized as follows:
 
 ## Run inference
 
+There are two active inference tracks in this repo:
+
+- `tools/inference_sd_vlm_vllm.py`: the vLLM track, for plain vLLM features such as attention backend selection, prefix caching, and supported speculative modes.
+- `tools/inference_custom_sd_vlm.py`: the custom speculative VLM track, using SpargeAttn for supported prefill cases and SageAttention for decode and verify.
+
+The custom speculative VLM path is the one that matches the current sparse-attention direction of this repo.
+
 ### Runtime environment for vLLM
 
 Use the project virtual environment and export the CUDA/Torch library paths before running either vLLM script.
@@ -107,7 +115,7 @@ export LD_LIBRARY_PATH="$PWD/.venv/lib/python3.12/site-packages/nvidia/cu13/lib:
 ### vLLM script
 
 `tools/inference_sd_vlm_vllm.py` is the main vLLM entrypoint for this repo.
-It runs plain vLLM inference on the target model.
+It runs the vLLM track on the target model.
 
 Optional runtime features:
 
@@ -127,17 +135,17 @@ Current status with `vllm 0.19.1`:
 
 In practice, the common workflow is:
 
-- use `tools/inference_sd_vlm_vllm.py` directly for a single smoke or full run
-- use `scripts/run_vllm_report.sh` when you want baseline + ablation runs + one summary table
+- use `tools/inference_sd_vlm_vllm.py` directly for a single vLLM smoke or full run
+- use `scripts/run_vllm_report.sh` when you want baseline + vLLM ablation runs + one summary table
+- use `tools/inference_custom_sd_vlm.py` when you want the custom speculative VLM runtime with SpargeAttn prefill and SageAttention decode/verify
 
 #### Main smoke test
 
-Plain vLLM smoke test with an explicit FlashAttention backend.
+Plain vLLM smoke test.
 
 ```bash
 python tools/inference_sd_vlm_vllm.py \
     --target-model outputs/qwen3vl \
-    --attn-backend FLASH_ATTN \
     --data datasets/DriveLM_nuScenes/split/val \
     --output outputs/qwen3vl/infer_results_sd_vlm_vllm_base_smoke.json \
     --metrics \
@@ -153,7 +161,6 @@ Run the same script on the full validation split.
 ```bash
 python tools/inference_sd_vlm_vllm.py \
     --target-model outputs/qwen3vl \
-    --attn-backend FLASH_ATTN \
     --data datasets/DriveLM_nuScenes/split/val \
     --output outputs/qwen3vl/infer_results_sd_vlm_vllm.json \
     --metrics \
@@ -175,7 +182,6 @@ The defaults already cover the common smoke setup:
 
 ```bash
 scripts/run_vllm_report.sh \
-    --attn-backend FLASH_ATTN \
     --run-label smoke \
     --max-samples 10 \
     --max-new-tokens 64
@@ -187,7 +193,6 @@ Run the full validation split and write `*_full.json` metrics files:
 
 ```bash
 scripts/run_vllm_report.sh \
-    --attn-backend FLASH_ATTN \
     --full-test \
     --run-label full \
     --max-new-tokens 128
@@ -205,7 +210,6 @@ You can also run only a subset:
 ```bash
 scripts/run_vllm_report.sh \
     --modes prefix full \
-    --attn-backend FLASH_ATTN \
     --run-label smoke \
     --max-samples 10 \
     --max-new-tokens 64
@@ -214,6 +218,48 @@ scripts/run_vllm_report.sh \
 `ngram` speculative decoding disables async scheduling in the current vLLM build. That warning is expected.
 
 Draft-model speculative decoding is still blocked for multimodal Qwen3-VL, and suffix decoding needs `arctic-inference==0.1.1` before it can be tested.
+
+### Custom speculative VLM script
+
+`tools/inference_custom_sd_vlm.py` is the custom speculative VLM entrypoint.
+
+Current behavior:
+
+- prefill uses `spas_sage_attn` when the incoming prefill shape matches the supported single-sequence case
+- other prefill shapes fall back to `sageattention`
+- decode uses `sageattention`
+- verify uses `sageattention`
+
+This path is not the async 2-GPU SSD mode. It is a colocated speculative VLM path built from the same codebase, currently run in eager mode.
+
+#### Smoke test
+
+```bash
+python tools/inference_custom_sd_vlm.py \
+    --target-model outputs/qwen3vl \
+    --draft-model outputs/qwen3vl_draft \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_custom_sd_vlm_sparge_sage_smoke.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/infer_results_custom_sd_vlm_sparge_sage_smoke.metrics.json \
+    --max-samples 10 \
+    --max-new-tokens 64
+```
+
+#### Full test
+
+```bash
+python tools/inference_custom_sd_vlm.py \
+    --target-model outputs/qwen3vl \
+    --draft-model outputs/qwen3vl_draft \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_custom_sd_vlm_sparge_sage.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/infer_results_custom_sd_vlm_sparge_sage.metrics.json \
+    --max-new-tokens 128
+```
+
+Use this path when your goal is: speculative decoding with VLM plus sparse attention on prefill and SageAttention on decode.
 
 ### Baseline script
 
@@ -246,9 +292,9 @@ python tools/inference.py \
     --max-new-tokens 128
 ```
 
-### Compare the new vLLM script against the baseline
+### Compare vLLM against the baseline
 
-The new vLLM script and the baseline script write metrics in the same JSON schema, so you can compare the `summary` blocks directly. The example below compares the `full` ablation smoke run against the baseline smoke test.
+The vLLM script and the baseline script write metrics in the same JSON schema, so you can compare the `summary` blocks directly. The example below compares the `full` ablation smoke run against the baseline smoke test.
 
 ```bash
 python - <<'PY'
@@ -271,7 +317,7 @@ PY
 `tools/inference_vllm.py` is still available as a separate pure-vLLM reference script, but the intended comparison here is:
 
 - baseline: `tools/inference.py`
-- new vLLM path: `tools/inference_sd_vlm_vllm.py`
+- vLLM path: `tools/inference_sd_vlm_vllm.py`
 
 `tools/inference_sd_vlm_vllm.py` is the maintained vLLM path documented above. `tools/inference_vllm.py` remains a separate reference script, but it is not the main entrypoint described in this README.
 
