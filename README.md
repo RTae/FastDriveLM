@@ -11,9 +11,24 @@ uv sync
 ```
 
 2. Optional: install `spas_sage_attn` only if you still want to run the legacy SSD/SpargeAttn path
+
+Preferred `uv` path:
+
+```bash
+uv sync --extra sparse-attn
+```
+
+If you only want the local extension package without a full extra sync, use:
+
 ```bash
 uv pip install --python .venv/bin/python -e ./spas_sage_attn
 ```
+
+Notes:
+
+- `spas_sage_attn` is optional for the current vLLM workflow.
+- The current main vLLM path in this repo does not require `spas_sage_attn`.
+- Building the sparse-attention extension needs CUDA, `torch`, `ninja`, and enough free disk space for temporary build artifacts.
 
 ## How to enter the virtual environment
 ```bash
@@ -109,6 +124,11 @@ Current status with `vllm 0.19.1`:
 - `ngram` speculative decoding works on Qwen3-VL
 - draft-model speculative decoding is not supported for multimodal models such as Qwen3-VL
 - `suffix` speculative decoding requires `arctic-inference==0.1.1`
+
+In practice, the common workflow is:
+
+- use `tools/inference_sd_vlm_vllm.py` directly for a single smoke or full run
+- use `scripts/run_vllm_report.sh` when you want baseline + ablation runs + one summary table
 
 #### Main smoke test
 
@@ -228,7 +248,7 @@ python tools/inference.py \
 
 ### Compare the new vLLM script against the baseline
 
-The new vLLM script and the baseline script write metrics in the same JSON schema, so you can compare the `summary` blocks directly. The example below compares the `full` ablation mode against the baseline smoke test.
+The new vLLM script and the baseline script write metrics in the same JSON schema, so you can compare the `summary` blocks directly. The example below compares the `full` ablation smoke run against the baseline smoke test.
 
 ```bash
 python - <<'PY'
@@ -253,7 +273,7 @@ PY
 - baseline: `tools/inference.py`
 - new vLLM path: `tools/inference_sd_vlm_vllm.py`
 
-The `tools/inference_sd_vlm_vllm.py` script is currently the plain vLLM path. SD, caching, and sparse-attention-specific behavior are no longer part of the documented interface.
+`tools/inference_sd_vlm_vllm.py` is the maintained vLLM path documented above. `tools/inference_vllm.py` remains a separate reference script, but it is not the main entrypoint described in this README.
 
 ## Evaluate
 
