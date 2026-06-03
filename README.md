@@ -140,7 +140,19 @@ Both metrics files share the same keys:
 `end_to_end_throughput_tok_per_sec`, `runner_decode_throughput_tok_per_sec`,
 `avg_target_step_time_ms`, `avg_target_verify_time_ms`.
 
-4. vLLM (still testing)
+### vLLM baseline and speculative-decoding speed test
+
+Run this section on a GPU machine with enough VRAM for Qwen3-VL and vLLM. Do not run it on a laptop without a GPU or with limited RAM.
+
+The speed test compares:
+
+- baseline: `tools/inference_vllm.py`
+- candidate: `tools/inference_sd_vlm_vllm.py` with vLLM draft-model speculative decoding
+
+Both commands use the same validation split, sample count, output-token limit, and warm-up exclusion. The speculative run should be considered a speedup only if the comparison command passes.
+
+1. Run the vLLM baseline:
+
 ```bash
 python3 tools/inference_vllm.py \
     --model-path outputs/qwen3vl \
@@ -149,9 +161,49 @@ python3 tools/inference_vllm.py \
     --output outputs/qwen3vl/infer_results_vllm.json \
     --metrics \
     --metrics-output outputs/qwen3vl/metrics_vllm.json \
-    --attn-implementation flash_attention_2 \
-    --warmup-steps 2 \
-    --max-samples 20
+    --max-new-tokens 128 \
+    --max-samples 50 \
+    --warmup-steps 5
+```
+
+2. Run vLLM speculative decoding with the 2B draft model:
+
+```bash
+python3 tools/inference_sd_vlm_vllm.py \
+    --target-model outputs/qwen3vl \
+    --draft-model outputs/qwen3vl_draft \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_sd_vlm_vllm.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm.json \
+    --max-new-tokens 128 \
+    --max-samples 50 \
+    --warmup-steps 5 \
+    --spec-k 4
+```
+
+3. Check that speculative decoding actually sped up inference:
+
+```bash
+python3 tools/compare_inference_speed.py \
+    --baseline outputs/qwen3vl/metrics_vllm.json \
+    --candidate outputs/qwen3vl/metrics_sd_vlm_vllm.json \
+    --min-speedup 1.01
+```
+
+The comparison uses `avg_latency_sec` as the pass/fail metric. It also prints end-to-end throughput, decode throughput, and speculative acceptance metrics when vLLM exposes them. If this command fails, speculative decoding did not speed up the tested setup; try increasing `--max-samples`, changing `--spec-k` such as `2`, `4`, or `6`, or improving the draft model.
+
+You can run the same test through Make:
+
+```bash
+make test_vllm_spec_speedup \
+    OUTPUT_MODEL=./outputs/qwen3vl \
+    DRAFT_MODEL=./outputs/qwen3vl_draft \
+    MAX_SAMPLES=50 \
+    MAX_NEW_TOKENS=128 \
+    WARMUP_STEPS=5 \
+    SPEC_K=4 \
+    MIN_SPEEDUP=1.01
 ```
 
 ### Ablation study

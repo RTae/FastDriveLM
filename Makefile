@@ -51,3 +51,40 @@ inference_ssd_vlm:
 		--output       $(OUTPUT_MODEL)/infer_results_ssd.json \
 		--metrics \
 		--metrics-output $(OUTPUT_MODEL)/metrics_ssd.json
+
+MAX_SAMPLES ?= 50
+MAX_NEW_TOKENS ?= 128
+WARMUP_STEPS ?= 5
+SPEC_K ?= 4
+MIN_SPEEDUP ?= 1.01
+
+inference_vllm:
+	python3 tools/inference_vllm.py \
+		--model-path $(OUTPUT_MODEL) \
+		--collate_fn drivelm_nus_qwen3vl_collate_fn_val \
+		--data datasets/DriveLM_nuScenes/split/val \
+		--output $(OUTPUT_MODEL)/infer_results_vllm.json \
+		--metrics \
+		--metrics-output $(OUTPUT_MODEL)/metrics_vllm.json \
+		--max-new-tokens $(MAX_NEW_TOKENS) \
+		--max-samples $(MAX_SAMPLES) \
+		--warmup-steps $(WARMUP_STEPS)
+
+inference_sd_vlm_vllm:
+	python3 tools/inference_sd_vlm_vllm.py \
+		--target-model $(OUTPUT_MODEL) \
+		--draft-model $(DRAFT_MODEL) \
+		--data datasets/DriveLM_nuScenes/split/val \
+		--output $(OUTPUT_MODEL)/infer_results_sd_vlm_vllm.json \
+		--metrics \
+		--metrics-output $(OUTPUT_MODEL)/metrics_sd_vlm_vllm.json \
+		--max-new-tokens $(MAX_NEW_TOKENS) \
+		--max-samples $(MAX_SAMPLES) \
+		--warmup-steps $(WARMUP_STEPS) \
+		--spec-k $(SPEC_K)
+
+test_vllm_spec_speedup: inference_vllm inference_sd_vlm_vllm
+	python3 tools/compare_inference_speed.py \
+		--baseline $(OUTPUT_MODEL)/metrics_vllm.json \
+		--candidate $(OUTPUT_MODEL)/metrics_sd_vlm_vllm.json \
+		--min-speedup $(MIN_SPEEDUP)

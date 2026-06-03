@@ -1,16 +1,10 @@
 import argparse
 import inspect
 import json
-import shutil
 import sys
 import time
 from pathlib import Path
-
-from datasets import load_from_disk
-from PIL import Image
-from tqdm import tqdm
-from transformers import AutoProcessor, GenerationConfig
-import torch
+from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +47,65 @@ def _build_metrics_summary(per_sample_metrics: list[dict]) -> dict:
     }
 
 
+def _resolve_repo_path(path: str | Path) -> Path:
+    path = Path(path)
+    if path.is_absolute():
+        return path
+    return (REPO_ROOT / path).resolve()
+
+
+def _resolve_maybe_local_reference(reference: str) -> str:
+    path = Path(reference)
+    if path.is_absolute():
+        return str(path)
+
+    repo_candidate = (REPO_ROOT / path).resolve()
+    if repo_candidate.exists():
+        return str(repo_candidate)
+
+    cwd_candidate = path.resolve()
+    if cwd_candidate.exists():
+        return str(cwd_candidate)
+
+    # Keep Hugging Face model IDs untouched.
+    return reference
+
+
+def _read_adapter_config(adapter_dir: Path) -> dict:
+    adapter_config_path = adapter_dir / "adapter_config.json"
+    if not adapter_config_path.exists():
+        return {}
+    with adapter_config_path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _has_adapter_artifacts(path: Path) -> bool:
+    adapter_config = path / "adapter_config.json"
+    if not adapter_config.exists():
+        return False
+    return (path / "adapter_model.safetensors").exists() or any(
+        path.glob("adapter_model*.bin")
+    )
+
+
+def _resolve_model_and_lora(model_or_adapter: str) -> tuple[str, str | None, str]:
+    path = _resolve_repo_path(model_or_adapter)
+    if not path.exists():
+        raise FileNotFoundError(f"Model path does not exist: {path}")
+    if not path.is_dir():
+        raise NotADirectoryError(f"Model path is not a directory: {path}")
+
+    if _has_adapter_artifacts(path):
+        adapter_config = _read_adapter_config(path)
+        base_model = adapter_config.get("base_model_name_or_path")
+        if not base_model:
+            raise ValueError(f"LoRA adapter is missing base_model_name_or_path: {path / 'adapter_config.json'}")
+        base_model = _resolve_maybe_local_reference(base_model)
+        return base_model, str(path), base_model
+
+    return str(path), None, str(path)
+
+
 def _resolve_image_path(path: str) -> str:
     image_path = Path(path)
     if image_path.is_absolute():
@@ -65,149 +118,73 @@ def _resolve_image_path(path: str) -> str:
     return str(image_path)
 
 
-def _load_images(image_paths: list[str]) -> list[Image.Image]:
-    return [Image.open(_resolve_image_path(path)).convert("RGB") for path in image_paths]
+def _load_images(image_paths: list[str], limit: int) -> list[Any]:
+    from PIL import Image
+
+    if len(image_paths) < limit:
+        raise ValueError(f"Expected at least {limit} images, got {len(image_paths)}")
+    return [
+        Image.open(_resolve_image_path(path)).convert("RGB")
+        for path in image_paths[:limit]
+    ]
 
 
-def _resolve_model_and_lora(model_or_adapter: str) -> tuple[str, str | None, str | None]:
-    path = Path(model_or_adapter)
-    if not path.is_absolute():
-        path = (REPO_ROOT / path).resolve()
-
-    adapter_config_path = path / "adapter_config.json"
-    if adapter_config_path.exists():
-        with adapter_config_path.open("r", encoding="utf-8") as f:
-            adapter_config = json.load(f)
-
-        base_model = adapter_config.get("base_model_name_or_path")
-        if not base_model:
-            raise ValueError(f"LoRA adapter is missing base_model_name_or_path: {adapter_config_path}")
-
-        base_path = Path(base_model)
-        if not base_path.is_absolute():
-            repo_base = (REPO_ROOT / base_path).resolve()
-            if repo_base.exists():
-                base_path = repo_base
-
-        return str(base_path), str(path), str(base_path)
-
-    return str(path), None, str(path)
-
-
-def _torch_dtype_from_arg(dtype_name: str):
-    if dtype_name == "float16":
-        return torch.float16
-    if dtype_name == "bfloat16":
-        return torch.bfloat16
-    if dtype_name == "float32":
-        return torch.float32
-    return None
-
-
-def _merged_model_dir(lora_path: str) -> Path:
-    adapter_dir = Path(lora_path)
-    return adapter_dir / ".vllm_merged_model"
-
-
-def _merge_lora_for_vllm(base_model: str, lora_path: str, dtype_name: str) -> str:
-    merged_dir = _merged_model_dir(lora_path)
-    marker_path = merged_dir / "merge_meta.json"
-    expected_meta = {
-        "base_model": str(Path(base_model).resolve()),
-        "adapter_path": str(Path(lora_path).resolve()),
-    }
-
-    if merged_dir.exists() and marker_path.exists():
-        with marker_path.open("r", encoding="utf-8") as f:
-            current_meta = json.load(f)
-        if current_meta == expected_meta and (merged_dir / "config.json").exists():
-            print(f"[inference_sd_vlm_vllm] reusing merged model cache: {merged_dir}", flush=True)
-            return str(merged_dir)
-
-    if merged_dir.exists():
-        shutil.rmtree(merged_dir)
-    merged_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"[inference_sd_vlm_vllm] merging LoRA adapter for vLLM: {lora_path}", flush=True)
-    from peft import PeftModel
-    from transformers import AutoModelForImageTextToText
-
-    model_kwargs = {
-        "trust_remote_code": True,
-        "low_cpu_mem_usage": True,
-    }
-    torch_dtype = _torch_dtype_from_arg(dtype_name)
-    if torch_dtype is not None:
-        model_kwargs["torch_dtype"] = torch_dtype
-
-    base = AutoModelForImageTextToText.from_pretrained(base_model, **model_kwargs)
-    merged = PeftModel.from_pretrained(base, lora_path).merge_and_unload()
-    merged.save_pretrained(merged_dir, safe_serialization=True)
-
-    processor = AutoProcessor.from_pretrained(base_model, trust_remote_code=True, local_files_only=True)
-    processor.save_pretrained(merged_dir)
-
-    generation_config_path = Path(base_model) / "generation_config.json"
-    if generation_config_path.exists():
-        shutil.copy2(generation_config_path, merged_dir / "generation_config.json")
-
-    with marker_path.open("w", encoding="utf-8") as f:
-        json.dump(expected_meta, f, indent=2)
-
-    return str(merged_dir)
-
-
-def _load_model_type(model_path: str) -> str | None:
-    config_path = Path(model_path) / "config.json"
-    if not config_path.exists():
-        return None
-
-    with config_path.open("r", encoding="utf-8") as f:
-        return json.load(f).get("model_type")
-
-
-def _validate_vllm_model_support(model_path: str) -> None:
-    import vllm
-
-    model_type = _load_model_type(model_path)
-    vllm_version = getattr(vllm, "__version__", "unknown")
-    if model_type == "qwen3_vl" and vllm_version == "0.1.2":
-        raise RuntimeError(
-            "Installed vLLM 0.1.2 does not support Qwen3-VL or multimodal inference. "
-            "The script can merge LoRA adapters into a full model cache, but Qwen3-VL still requires a newer vLLM build."
-        )
-
-
-def _sample_to_vllm_request(sample: dict, processor) -> tuple[dict, str, str]:
+def _sample_to_vllm_request(
+    sample: dict,
+    processor,
+    limit_mm_images: int,
+) -> tuple[dict, str, str]:
     question = sample["conversations"][0]["value"]
-    images = _load_images(sample["image_paths"])
-    messages = [{
-        "role": "user",
-        "content": [{"type": "image", "image": image} for image in images] + [{"type": "text", "text": question}],
-    }]
-    prompt = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    images = _load_images(sample["image_paths"], limit_mm_images)
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                [{"type": "image", "image": image} for image in images]
+                + [{"type": "text", "text": question}]
+            ),
+        }
+    ]
+    prompt = processor.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
     return {"prompt": prompt, "multi_modal_data": {"image": images}}, question, sample["id"]
 
 
-def _load_generation_config(source: str) -> GenerationConfig:
+def _load_generation_config(source: str) -> Any:
+    from transformers import GenerationConfig
+
     try:
         return GenerationConfig.from_pretrained(source, local_files_only=True)
     except OSError:
         return GenerationConfig()
 
 
-def _build_sampling_params(args, generation_config: GenerationConfig):
+def _config_value(config: Any, name: str, default: Any = None) -> Any:
+    value = getattr(config, name, default)
+    return default if value is None else value
+
+
+def _build_sampling_params(args, generation_config: Any):
     from vllm import SamplingParams
 
-    kwargs: dict[str, object] = {"max_tokens": args.max_new_tokens}
-    if getattr(generation_config, "do_sample", False):
-        kwargs["temperature"] = float(getattr(generation_config, "temperature", 1.0) or 1.0)
-        kwargs["top_p"] = float(getattr(generation_config, "top_p", 1.0) or 1.0)
-        top_k = getattr(generation_config, "top_k", None)
+    kwargs: dict[str, Any] = {"max_tokens": args.max_new_tokens}
+    if _config_value(generation_config, "do_sample", False):
+        kwargs["temperature"] = float(_config_value(generation_config, "temperature", 1.0))
+        kwargs["top_p"] = float(_config_value(generation_config, "top_p", 1.0))
+        top_k = _config_value(generation_config, "top_k", None)
         if top_k is not None:
             kwargs["top_k"] = int(top_k)
     else:
         kwargs["temperature"] = 0.0
+
+    eos_token_id = _config_value(generation_config, "eos_token_id", None)
+    if isinstance(eos_token_id, int):
+        kwargs["stop_token_ids"] = [eos_token_id]
+    elif isinstance(eos_token_id, list) and eos_token_id:
+        kwargs["stop_token_ids"] = eos_token_id
 
     return SamplingParams(**kwargs)
 
@@ -217,7 +194,10 @@ def _metric_attr(metrics, *names: str) -> float | None:
         return None
 
     for name in names:
-        value = getattr(metrics, name, None)
+        if isinstance(metrics, dict):
+            value = metrics.get(name)
+        else:
+            value = getattr(metrics, name, None)
         if value is not None:
             try:
                 return float(value)
@@ -226,15 +206,26 @@ def _metric_attr(metrics, *names: str) -> float | None:
     return None
 
 
-def _filter_llm_kwargs(llm_cls, kwargs: dict) -> dict:
-    accepted = set(inspect.signature(llm_cls).parameters)
+def _filter_kwargs(callable_obj, kwargs: dict) -> dict:
+    signature = inspect.signature(callable_obj)
+    if any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    ):
+        return {key: value for key, value in kwargs.items() if value is not None}
+
+    accepted = set(signature.parameters)
     dropped = sorted(key for key in kwargs if key not in accepted and kwargs[key] is not None)
     if dropped:
         print(
             f"[inference_sd_vlm_vllm] ignoring unsupported vLLM args: {', '.join(dropped)}",
             flush=True,
         )
-    return {key: value for key, value in kwargs.items() if key in accepted and value is not None}
+    return {
+        key: value
+        for key, value in kwargs.items()
+        if key in accepted and value is not None
+    }
 
 
 def _derive_ttft_sec(request_output, started: float, finished: float) -> float:
@@ -275,61 +266,166 @@ def _build_sample_metrics(request_output, started: float, finished: float) -> di
     }
 
 
+def _build_speculative_config(args, draft_model_reference: str) -> dict:
+    config: dict[str, Any] = {
+        "method": "draft_model",
+        "model": draft_model_reference,
+        "num_speculative_tokens": args.spec_k,
+        "max_model_len": args.draft_max_model_len or args.max_model_len,
+    }
+
+    if args.draft_tensor_parallel_size is not None:
+        config["draft_tensor_parallel_size"] = args.draft_tensor_parallel_size
+    if args.parallel_drafting:
+        config["parallel_drafting"] = True
+    if args.enforce_eager is not None:
+        config["enforce_eager"] = args.enforce_eager
+
+    return config
+
+
+def _build_lora_request(lora_path: str | None):
+    if not lora_path:
+        return None
+
+    from vllm.lora.request import LoRARequest
+
+    return LoRARequest("drivelm_qwen3vl_target", 1, lora_path)
+
+
+def _metric_value(metric) -> Any:
+    if hasattr(metric, "value"):
+        return metric.value
+    if hasattr(metric, "values"):
+        return metric.values
+    return None
+
+
+def _collect_spec_decode_metrics(llm, spec_k: int) -> dict:
+    if not hasattr(llm, "get_metrics"):
+        return {}
+
+    metrics = llm.get_metrics()
+    num_drafts = 0.0
+    num_draft_tokens = 0.0
+    num_accepted_tokens = 0.0
+    acceptance_counts = [0.0] * spec_k
+
+    for metric in metrics:
+        name = getattr(metric, "name", "")
+        value = _metric_value(metric)
+        if value is None:
+            continue
+
+        if name == "vllm:spec_decode_num_drafts":
+            num_drafts += float(value)
+        elif name == "vllm:spec_decode_num_draft_tokens":
+            num_draft_tokens += float(value)
+        elif name == "vllm:spec_decode_num_accepted_tokens":
+            num_accepted_tokens += float(value)
+        elif name == "vllm:spec_decode_num_accepted_tokens_per_pos":
+            for pos, count in enumerate(list(value)[:spec_k]):
+                acceptance_counts[pos] += float(count)
+
+    return {
+        "spec_decode_num_drafts": num_drafts,
+        "spec_decode_num_draft_tokens": num_draft_tokens,
+        "spec_decode_num_accepted_tokens": num_accepted_tokens,
+        "spec_decode_mean_acceptance_length": 1.0 + _safe_divide(num_accepted_tokens, num_drafts),
+        "spec_decode_acceptance_rate_per_pos": [
+            _safe_divide(count, num_drafts) for count in acceptance_counts
+        ],
+    }
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="DriveLM inference with vLLM using SSD-style CLI")
-    parser.add_argument("--target-model", default="outputs/qwen3vl", help="Target model or adapter directory")
-    parser.add_argument("--draft-model", default="outputs/qwen3vl_draft", help="Accepted for CLI compatibility; ignored by this vLLM script")
+    parser = argparse.ArgumentParser(description="DriveLM inference with vLLM draft-model speculative decoding")
+    parser.add_argument("--target-model", default="outputs/qwen3vl", help="Target model or LoRA adapter directory")
+    parser.add_argument("--draft-model", default="outputs/qwen3vl_draft", help="Draft model or LoRA adapter directory")
     parser.add_argument("--data", default="datasets/DriveLM_nuScenes/split/val", help="Dataset path created by load_from_disk")
     parser.add_argument("--output", default="outputs/qwen3vl/infer_results_sd_vlm_vllm.json", help="Output JSON path")
     parser.add_argument("--max-new-tokens", type=int, default=128, help="Max new tokens per sample")
-    parser.add_argument("--spec-k", type=int, default=4, help="Accepted for CLI compatibility; ignored by this vLLM script")
-    parser.add_argument("--num-gpus", type=int, default=1, help="Number of GPUs for vLLM tensor parallelism")
-    parser.add_argument("--max-model-len", type=int, default=16384, help="Maximum model length")
+    parser.add_argument("--spec-k", type=int, default=4, help="Number of draft tokens proposed per speculative step")
+    parser.add_argument("--num-gpus", type=int, default=1, help="Target model tensor parallel size")
+    parser.add_argument("--draft-tensor-parallel-size", type=int, default=None, help="Optional draft model tensor parallel size")
+    parser.add_argument("--max-model-len", type=int, default=16384, help="Maximum target model length")
+    parser.add_argument("--draft-max-model-len", type=int, default=None, help="Optional maximum draft model length")
     parser.add_argument("--start-index", type=int, default=0, help="Start sample index")
     parser.add_argument("--max-samples", type=int, default=None, help="Optional number of samples to run")
+    parser.add_argument("--warmup-steps", type=int, default=0, help="Number of leading samples to exclude from aggregate metrics")
     parser.add_argument("--metrics", action="store_true", help="Print per-sample and aggregate speed metrics")
     parser.add_argument("--metrics-output", default=None, help="Optional JSON path for aggregate and per-sample metrics")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.9, help="vLLM GPU memory utilization")
     parser.add_argument("--dtype", choices=["auto", "float16", "bfloat16", "float32"], default="auto", help="vLLM dtype")
-    parser.add_argument("--max-lora-rank", type=int, default=64, help="Maximum LoRA rank exposed to vLLM")
+    parser.add_argument("--max-lora-rank", type=int, default=64, help="Maximum target LoRA rank exposed to vLLM")
     parser.add_argument("--max-num-seqs", type=int, default=1, help="Maximum concurrent sequences for vLLM")
+    parser.add_argument("--limit-mm-images", type=int, default=6, help="Number of DriveLM camera images per prompt")
+    parser.add_argument("--parallel-drafting", action="store_true", help="Enable vLLM parallel drafting when supported")
+    parser.add_argument("--enable-chunked-prefill", action=argparse.BooleanOptionalAction, default=False, help="Pass through to vLLM")
     parser.add_argument("--enforce-eager", action=argparse.BooleanOptionalAction, default=None, help="Pass through to vLLM when supported")
+    parser.add_argument(
+        "--allow-draft-lora-base-fallback",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "If --draft-model is a LoRA adapter, use its base model as the vLLM draft. "
+            "vLLM speculative_config has no standard per-draft LoRA request field."
+        ),
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    if args.draft_model:
-        print("[inference_sd_vlm_vllm] ignoring --draft-model: installed vLLM does not expose SSD-style speculative decoding", flush=True)
-    if args.spec_k != 4:
-        print("[inference_sd_vlm_vllm] ignoring --spec-k: installed vLLM does not expose SSD-style speculative decoding", flush=True)
 
-    model_reference, lora_path, processor_source = _resolve_model_and_lora(args.target_model)
-    if lora_path is not None:
-        model_reference = _merge_lora_for_vllm(processor_source, lora_path, args.dtype)
-        processor_source = model_reference
-        lora_path = None
+    from datasets import load_from_disk
+    from tqdm import tqdm
+    from transformers import AutoProcessor
 
-    _validate_vllm_model_support(model_reference)
+    target_model, target_lora_path, target_processor_source = _resolve_model_and_lora(args.target_model)
+    draft_model, draft_lora_path, _ = _resolve_model_and_lora(args.draft_model)
+
+    if draft_lora_path is not None:
+        message = (
+            "[inference_sd_vlm_vllm] --draft-model is a LoRA adapter; using its "
+            "base model in vLLM speculative_config. Target LoRA is still applied "
+            "during verification through LoRARequest."
+        )
+        if not args.allow_draft_lora_base_fallback:
+            raise ValueError(message)
+        print(message, flush=True)
 
     from vllm import LLM
 
-    processor = AutoProcessor.from_pretrained(processor_source, trust_remote_code=True, local_files_only=True)
-    generation_config = _load_generation_config(processor_source)
+    processor = AutoProcessor.from_pretrained(
+        target_processor_source,
+        trust_remote_code=True,
+        local_files_only=True,
+    )
+    generation_config = _load_generation_config(target_processor_source)
     sampling_params = _build_sampling_params(args, generation_config)
+    lora_request = _build_lora_request(target_lora_path)
+    speculative_config = _build_speculative_config(args, draft_model)
 
     llm_kwargs = {
-        "model": model_reference,
-        "tokenizer": processor_source,
+        "model": target_model,
+        "tokenizer": target_processor_source,
         "trust_remote_code": True,
         "dtype": args.dtype,
         "tensor_parallel_size": args.num_gpus,
         "max_model_len": args.max_model_len,
         "gpu_memory_utilization": args.gpu_memory_utilization,
         "max_num_seqs": args.max_num_seqs,
+        "limit_mm_per_prompt": {"image": args.limit_mm_images},
+        "disable_chunked_mm_input": True,
+        "enable_chunked_prefill": args.enable_chunked_prefill,
         "enforce_eager": args.enforce_eager,
+        "speculative_config": speculative_config,
+        "enable_lora": target_lora_path is not None,
+        "max_loras": 1 if target_lora_path else None,
+        "max_lora_rank": args.max_lora_rank if target_lora_path else None,
     }
-    llm = LLM(**_filter_llm_kwargs(LLM, llm_kwargs))
+    llm = LLM(**_filter_kwargs(LLM, llm_kwargs))
 
     dataset = load_from_disk(args.data)
     if args.start_index:
@@ -344,11 +440,20 @@ def main():
 
     results = []
     per_sample_metrics = []
-    for sample in tqdm(dataset, desc="vLLM DriveLM Inference", dynamic_ncols=True):
-        request, question, sample_id = _sample_to_vllm_request(sample, processor)
+    for sample in tqdm(dataset, desc="vLLM Speculative DriveLM Inference", dynamic_ncols=True):
+        request, question, sample_id = _sample_to_vllm_request(
+            sample,
+            processor,
+            args.limit_mm_images,
+        )
 
         started = time.perf_counter()
-        outputs = llm.generate([request], sampling_params=sampling_params, use_tqdm=False)
+        outputs = llm.generate(
+            [request],
+            sampling_params=sampling_params,
+            use_tqdm=False,
+            lora_request=lora_request,
+        )
         finished = time.perf_counter()
 
         request_output = outputs[0]
@@ -371,7 +476,8 @@ def main():
                 flush=True,
             )
 
-    summary = _build_metrics_summary(per_sample_metrics)
+    summary = _build_metrics_summary(per_sample_metrics[args.warmup_steps:])
+    summary.update(_collect_spec_decode_metrics(llm, args.spec_k))
     if args.metrics:
         print(
             f"[metrics] samples={summary['num_samples']} total_tokens={summary['total_output_tokens']} "
@@ -381,6 +487,14 @@ def main():
             f"avg_verify_ms={summary['avg_target_verify_time_ms']:.2f} e2e_tps={summary['end_to_end_throughput_tok_per_sec']:.2f}",
             flush=True,
         )
+        if "spec_decode_num_drafts" in summary:
+            print(
+                f"[metrics] spec_drafts={summary['spec_decode_num_drafts']:.0f} "
+                f"spec_draft_tokens={summary['spec_decode_num_draft_tokens']:.0f} "
+                f"spec_accepted_tokens={summary['spec_decode_num_accepted_tokens']:.0f} "
+                f"mean_acceptance_length={summary['spec_decode_mean_acceptance_length']:.2f}",
+                flush=True,
+            )
 
     if args.metrics_output:
         metrics_output_path = Path(args.metrics_output)
