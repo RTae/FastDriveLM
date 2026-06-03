@@ -94,34 +94,103 @@ export LD_LIBRARY_PATH="$PWD/.venv/lib/python3.12/site-packages/nvidia/cu13/lib:
 `tools/inference_sd_vlm_vllm.py` is the main vLLM entrypoint for this repo.
 It runs plain vLLM inference on the target model.
 
-#### Smoke test
+Suggested vLLM run modes:
 
-Use 10 validation samples and a non-trivial generation limit.
+- `vllm base`: plain vLLM with no explicit prefix caching or speculative decoding flags
+- `vllm prefix`: plain vLLM with `--use-prefix-caching`
+- `vllm spec`: ngram speculative decoding without explicit prefix caching
+- `vllm full`: ngram speculative decoding with `--use-prefix-caching`
+
+Optional runtime features:
+
+- `--use-prefix-caching` / `--no-use-prefix-caching`: explicitly enable or disable vLLM prefix caching.
+- `--enable-speculative-decoding --speculative-method ngram --spec-k <int>`: enable ngram-based speculative decoding.
+- `--enable-speculative-decoding --speculative-method draft_model --draft-model <path> --spec-k <int>`: enable draft-model speculative decoding when the installed vLLM build and model type support it.
+- `--enable-speculative-decoding --speculative-method suffix ...`: enable suffix decoding when the extra dependency is installed.
+
+Current status with `vllm 0.19.1`:
+
+- plain vLLM inference works
+- prefix caching works
+- `ngram` speculative decoding works on Qwen3-VL
+- draft-model speculative decoding is not supported for multimodal models such as Qwen3-VL
+- `suffix` speculative decoding requires `arctic-inference==0.1.1`
+
+#### vLLM base
+
+Plain vLLM smoke test.
 
 ```bash
 python tools/inference_sd_vlm_vllm.py \
     --target-model outputs/qwen3vl \
     --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_smoke.json \
+    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_base_smoke.json \
     --metrics \
-    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_smoke.json \
+    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_base_smoke.json \
     --max-samples 10 \
     --max-new-tokens 64
 ```
 
-#### Full test
+#### vLLM prefix
 
-Use the full validation split with the regular generation budget.
+Plain vLLM with explicit prefix caching.
 
 ```bash
 python tools/inference_sd_vlm_vllm.py \
     --target-model outputs/qwen3vl \
+    --use-prefix-caching \
     --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_full.json \
+    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_prefix_smoke.json \
     --metrics \
-    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_full.json \
-    --max-new-tokens 128
+    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_prefix_smoke.json \
+    --max-samples 10 \
+    --max-new-tokens 64
 ```
+
+#### vLLM spec
+
+Ngram speculative decoding without explicit prefix caching.
+
+```bash
+python tools/inference_sd_vlm_vllm.py \
+    --target-model outputs/qwen3vl \
+    --enable-speculative-decoding \
+    --speculative-method ngram \
+    --spec-k 2 \
+    --prompt-lookup-min 2 \
+    --prompt-lookup-max 4 \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_spec_smoke.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_spec_smoke.json \
+    --max-samples 10 \
+    --max-new-tokens 64
+```
+
+#### vLLM full
+
+Ngram speculative decoding with explicit prefix caching.
+
+```bash
+python tools/inference_sd_vlm_vllm.py \
+    --target-model outputs/qwen3vl \
+    --enable-speculative-decoding \
+    --speculative-method ngram \
+    --spec-k 2 \
+    --prompt-lookup-min 2 \
+    --prompt-lookup-max 4 \
+    --use-prefix-caching \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_full_smoke.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_full_smoke.json \
+    --max-samples 10 \
+    --max-new-tokens 64
+```
+
+`ngram` speculative decoding disables async scheduling in the current vLLM build. That warning is expected.
+
+Draft-model speculative decoding is still blocked for multimodal Qwen3-VL, and suffix decoding needs `arctic-inference==0.1.1` before it can be tested.
 
 ### Baseline script
 

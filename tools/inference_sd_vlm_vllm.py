@@ -1,4 +1,5 @@
 import argparse
+import importlib.util
 import inspect
 import json
 import multiprocessing as mp
@@ -94,6 +95,14 @@ def _resolve_model_and_lora(model_or_adapter: str) -> tuple[str, str | None, str
         return str(base_path), str(path), str(base_path)
 
     return str(path), None, str(path)
+
+
+def _resolve_vllm_model_source(model_or_adapter: str, dtype_name: str) -> tuple[str, str]:
+    model_reference, lora_path, processor_source = _resolve_model_and_lora(model_or_adapter)
+    if lora_path is not None:
+        model_reference = _merge_lora_for_vllm(processor_source, lora_path, dtype_name)
+        processor_source = model_reference
+    return model_reference, processor_source
 
 
 def _torch_dtype_from_arg(dtype_name: str):
@@ -192,6 +201,14 @@ def _load_model_type(model_path: str) -> str | None:
         return json.load(f).get("model_type")
 
 
+def _is_multimodal_model(model_path: str) -> bool:
+    model_type = _load_model_type(model_path)
+    if model_type is None:
+        return False
+    multimodal_markers = ("_vl", "vision", "paligemma", "phi4mm")
+    return any(marker in model_type.lower() for marker in multimodal_markers)
+
+
 def _validate_vllm_model_support(model_path: str) -> None:
     import vllm
 
@@ -253,7 +270,15 @@ def _metric_attr(metrics, *names: str) -> float | None:
 
 
 def _filter_llm_kwargs(llm_cls, kwargs: dict) -> dict:
-    accepted = set(inspect.signature(llm_cls).parameters)
+    signature = inspect.signature(llm_cls)
+    accepts_var_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
+    if accepts_var_kwargs:
+        return {key: value for key, value in kwargs.items() if value is not None}
+
+    accepted = set(signature.parameters)
     dropped = sorted(key for key in kwargs if key not in accepted and kwargs[key] is not None)
     if dropped:
         print(
@@ -261,6 +286,63 @@ def _filter_llm_kwargs(llm_cls, kwargs: dict) -> dict:
             flush=True,
         )
     return {key: value for key, value in kwargs.items() if key in accepted and value is not None}
+
+
+def _build_speculative_config(args) -> dict | None:
+    if not args.enable_speculative_decoding:
+        return None
+    if args.speculative_method == "draft_model":
+        if not args.draft_model:
+            raise ValueError(
+                "--draft-model is required when --enable-speculative-decoding "
+                "and --speculative-method=draft_model are set"
+            )
+
+        draft_model_reference, _ = _resolve_vllm_model_source(args.draft_model, args.dtype)
+        return {
+            "model": draft_model_reference,
+            "method": "draft_model",
+            "num_speculative_tokens": args.spec_k,
+        }
+
+    if args.speculative_method == "ngram":
+        return {
+            "model": "ngram",
+            "method": "ngram",
+            "num_speculative_tokens": args.spec_k,
+            "prompt_lookup_min": args.prompt_lookup_min,
+            "prompt_lookup_max": args.prompt_lookup_max,
+        }
+
+    if args.speculative_method == "suffix":
+        return {
+            "model": "suffix",
+            "method": "suffix",
+            "num_speculative_tokens": args.spec_k,
+            "suffix_decoding_max_tree_depth": args.suffix_max_tree_depth,
+            "suffix_decoding_max_cached_requests": args.suffix_max_cached_requests,
+            "suffix_decoding_max_spec_factor": args.suffix_max_spec_factor,
+            "suffix_decoding_min_token_prob": args.suffix_min_token_prob,
+        }
+
+    raise ValueError(f"Unsupported speculative method: {args.speculative_method}")
+
+
+def _validate_speculative_support(target_model_reference: str, speculative_config: dict | None) -> None:
+    if speculative_config is None:
+        return
+    method = speculative_config.get("method")
+    if method == "draft_model" and _is_multimodal_model(target_model_reference):
+        raise RuntimeError(
+            "Installed vLLM does not support draft-model speculative decoding for multimodal models yet. "
+            "This script can still use --use-prefix-caching or model-free speculative methods such as ngram with Qwen3-VL, "
+            "but draft-model speculative decoding requires a text-only model or future vLLM support."
+        )
+    if method == "suffix":
+        if importlib.util.find_spec("arctic_inference") is None:
+            raise RuntimeError(
+                "Suffix speculative decoding requires arctic-inference==0.1.1 in the current vLLM build."
+            )
 
 
 def _ensure_spawn_start_method() -> None:
@@ -311,6 +393,24 @@ def _build_sample_metrics(request_output, started: float, finished: float) -> di
 def parse_args():
     parser = argparse.ArgumentParser(description="DriveLM inference with vLLM")
     parser.add_argument("--target-model", default="outputs/qwen3vl", help="Target model or adapter directory")
+    parser.add_argument("--enable-speculative-decoding", action=argparse.BooleanOptionalAction, default=False,
+                        help="Enable vLLM speculative decoding with a draft model")
+    parser.add_argument("--speculative-method", choices=["draft_model", "ngram", "suffix"], default="draft_model",
+                        help="Speculative decoding method to use when enabled")
+    parser.add_argument("--draft-model", default=None, help="Draft model or adapter directory used when speculative decoding is enabled")
+    parser.add_argument("--spec-k", type=int, default=4, help="Number of speculative draft tokens when speculative decoding is enabled")
+    parser.add_argument("--prompt-lookup-min", type=int, default=5,
+                        help="Minimum ngram window for ngram speculative decoding")
+    parser.add_argument("--prompt-lookup-max", type=int, default=5,
+                        help="Maximum ngram window for ngram speculative decoding")
+    parser.add_argument("--suffix-max-tree-depth", type=int, default=24,
+                        help="Maximum suffix tree depth for suffix speculative decoding")
+    parser.add_argument("--suffix-max-cached-requests", type=int, default=10000,
+                        help="Maximum number of cached requests for suffix speculative decoding")
+    parser.add_argument("--suffix-max-spec-factor", type=float, default=1.0,
+                        help="Maximum speculative factor for suffix speculative decoding")
+    parser.add_argument("--suffix-min-token-prob", type=float, default=0.1,
+                        help="Minimum token probability for suffix speculative decoding")
     parser.add_argument("--data", default="datasets/DriveLM_nuScenes/split/val", help="Dataset path created by load_from_disk")
     parser.add_argument("--output", default="outputs/qwen3vl/infer_results_sd_vlm_vllm.json", help="Output JSON path")
     parser.add_argument("--max-new-tokens", type=int, default=128, help="Max new tokens per sample")
@@ -322,6 +422,8 @@ def parse_args():
     parser.add_argument("--metrics-output", default=None, help="Optional JSON path for aggregate and per-sample metrics")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.9, help="vLLM GPU memory utilization")
     parser.add_argument("--dtype", choices=["auto", "float16", "bfloat16", "float32"], default="auto", help="vLLM dtype")
+    parser.add_argument("--use-prefix-caching", action=argparse.BooleanOptionalAction, default=None,
+                        help="Enable or disable vLLM prefix caching; omitted uses the vLLM default")
     parser.add_argument("--max-lora-rank", type=int, default=64, help="Maximum LoRA rank exposed to vLLM")
     parser.add_argument("--max-num-seqs", type=int, default=1, help="Maximum concurrent sequences for vLLM")
     parser.add_argument("--enforce-eager", action=argparse.BooleanOptionalAction, default=None, help="Pass through to vLLM when supported")
@@ -333,13 +435,13 @@ def main():
 
     args = parse_args()
 
-    model_reference, lora_path, processor_source = _resolve_model_and_lora(args.target_model)
-    if lora_path is not None:
-        model_reference = _merge_lora_for_vllm(processor_source, lora_path, args.dtype)
-        processor_source = model_reference
-        lora_path = None
+    model_reference, processor_source = _resolve_vllm_model_source(args.target_model, args.dtype)
+    speculative_config = _build_speculative_config(args)
 
     _validate_vllm_model_support(model_reference)
+    _validate_speculative_support(model_reference, speculative_config)
+    if speculative_config is not None:
+        _validate_vllm_model_support(speculative_config["model"])
 
     from vllm import LLM
 
@@ -361,6 +463,8 @@ def main():
         "max_model_len": args.max_model_len,
         "gpu_memory_utilization": args.gpu_memory_utilization,
         "max_num_seqs": args.max_num_seqs,
+        "enable_prefix_caching": args.use_prefix_caching,
+        "speculative_config": speculative_config,
         "enforce_eager": args.enforce_eager,
     }
     llm = LLM(**_filter_llm_kwargs(LLM, llm_kwargs))
