@@ -29,6 +29,7 @@ dependencies = [
     "tiktoken>=0.13.0",
     "xxhash>=3.7.0",
     "einops>=0.8.0",
+    "sageattention==1.0.6",
     "ninja>=1.13.0",
     "nvidia-cusparselt-cu12>=0.7.1",
     "vllm>=0.8.0",
