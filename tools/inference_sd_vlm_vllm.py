@@ -111,6 +111,23 @@ def _merged_model_dir(lora_path: str) -> Path:
     return adapter_dir / ".vllm_merged_model"
 
 
+def _copy_tokenizer_assets(source_dir: str, destination_dir: Path) -> None:
+    asset_names = [
+        "added_tokens.json",
+        "chat_template.json",
+        "chat_template.jinja",
+        "merges.txt",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+    ]
+    for name in asset_names:
+        source_path = Path(source_dir) / name
+        if source_path.exists():
+            shutil.copy2(source_path, destination_dir / name)
+
+
 def _merge_lora_for_vllm(base_model: str, lora_path: str, dtype_name: str) -> str:
     merged_dir = _merged_model_dir(lora_path)
     marker_path = merged_dir / "merge_meta.json"
@@ -123,6 +140,7 @@ def _merge_lora_for_vllm(base_model: str, lora_path: str, dtype_name: str) -> st
         with marker_path.open("r", encoding="utf-8") as f:
             current_meta = json.load(f)
         if current_meta == expected_meta and (merged_dir / "config.json").exists():
+            _copy_tokenizer_assets(base_model, merged_dir)
             print(f"[inference_sd_vlm_vllm] reusing merged model cache: {merged_dir}", flush=True)
             return str(merged_dir)
 
@@ -146,8 +164,14 @@ def _merge_lora_for_vllm(base_model: str, lora_path: str, dtype_name: str) -> st
     merged = PeftModel.from_pretrained(base, lora_path).merge_and_unload()
     merged.save_pretrained(merged_dir, safe_serialization=True)
 
-    processor = AutoProcessor.from_pretrained(base_model, trust_remote_code=True, local_files_only=True)
+    processor = AutoProcessor.from_pretrained(
+        base_model,
+        trust_remote_code=True,
+        local_files_only=True,
+        use_fast=False,
+    )
     processor.save_pretrained(merged_dir)
+    _copy_tokenizer_assets(base_model, merged_dir)
 
     generation_config_path = Path(base_model) / "generation_config.json"
     if generation_config_path.exists():
@@ -325,7 +349,12 @@ def main():
 
     from vllm import LLM
 
-    processor = AutoProcessor.from_pretrained(processor_source, trust_remote_code=True, local_files_only=True)
+    processor = AutoProcessor.from_pretrained(
+        processor_source,
+        trust_remote_code=True,
+        local_files_only=True,
+        use_fast=False,
+    )
     generation_config = _load_generation_config(processor_source)
     sampling_params = _build_sampling_params(args, generation_config)
 
