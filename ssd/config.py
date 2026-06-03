@@ -133,3 +133,5 @@ class Config:
             f"attn_backend must be 'flash' or 'sparge', got {self.attn_backend!r}"
         if self.attn_backend == "sparge":
             self.use_prefix_caching = False
+        if self.is_vlm:
+            self.use_prefix_caching = False

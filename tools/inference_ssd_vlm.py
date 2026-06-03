@@ -71,7 +71,7 @@ def parse_args():
     parser.add_argument("--max-new-tokens", type=int, default=128, help="Max new tokens per sample")
     parser.add_argument("--spec-k", type=int, default=4, help="Lookahead for speculative decoding")
     parser.add_argument("--num-gpus", type=int, default=2, help="Number of GPUs to expose to the VLM SSD path")
-    parser.add_argument("--max-model-len", type=int, default=2048, help="Maximum model length")
+    parser.add_argument("--max-model-len", type=int, default=16384, help="Maximum model length")
     parser.add_argument("--start-index", type=int, default=0, help="Start sample index")
     parser.add_argument("--max-samples", type=int, default=None, help="Optional number of samples to run")
     parser.add_argument("--metrics", action="store_true", help="Print per-sample and aggregate speed metrics")

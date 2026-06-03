@@ -2,9 +2,65 @@ import torch
 from torch import nn
 import triton
 import triton.language as tl
+import inspect
 
 from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 from ssd.utils.context import get_context
+
+
+_FLASH_ATTN_WITH_KVCACHE_PARAMS = set(inspect.signature(flash_attn_with_kvcache).parameters)
+
+
+def _pad_varlen_q(q: torch.Tensor, cu_seqlens_q: torch.Tensor, max_seqlen_q: int) -> tuple[torch.Tensor, torch.Tensor]:
+    batch_size = cu_seqlens_q.numel() - 1
+    padded_q = q.new_zeros((batch_size, max_seqlen_q, q.shape[1], q.shape[2]))
+    lengths = cu_seqlens_q[1:] - cu_seqlens_q[:-1]
+    token_indices = torch.arange(q.shape[0], device=q.device, dtype=cu_seqlens_q.dtype)
+    batch_indices = torch.bucketize(token_indices, cu_seqlens_q[1:-1], right=False)
+    token_offsets = token_indices - cu_seqlens_q[batch_indices]
+    padded_q[batch_indices, token_offsets] = q
+    return padded_q, lengths
+
+
+def _unpad_varlen_o(padded_o: torch.Tensor, lengths: torch.Tensor, num_tokens: int) -> torch.Tensor:
+    token_indices = torch.arange(num_tokens, device=padded_o.device, dtype=lengths.dtype)
+    cu_seqlens_q = torch.cat([lengths.new_zeros(1), lengths.cumsum(dim=0)])
+    batch_indices = torch.bucketize(token_indices, cu_seqlens_q[1:-1], right=False)
+    token_offsets = token_indices - cu_seqlens_q[batch_indices]
+    return padded_o[batch_indices, token_offsets]
+
+
+def _flash_attn_with_kvcache_compat(
+    q: torch.Tensor,
+    k_cache: torch.Tensor,
+    v_cache: torch.Tensor,
+    *,
+    context,
+    softmax_scale: float,
+    causal: bool,
+) -> torch.Tensor:
+    kwargs = {
+        "cache_seqlens": context.context_lens,
+        "softmax_scale": softmax_scale,
+        "causal": causal,
+    }
+
+    if "page_table" in _FLASH_ATTN_WITH_KVCACHE_PARAMS:
+        kwargs["page_table"] = context.block_tables
+        if context.cu_seqlens_q is not None:
+            kwargs["cu_seqlens_q"] = context.cu_seqlens_q
+            kwargs["max_seqlen_q"] = context.max_seqlen_q
+        return flash_attn_with_kvcache(q, k_cache, v_cache, **kwargs)
+
+    if "block_table" in _FLASH_ATTN_WITH_KVCACHE_PARAMS:
+        kwargs["block_table"] = context.block_tables
+        if context.cu_seqlens_q is not None and q.dim() == 3:
+            padded_q, lengths = _pad_varlen_q(q, context.cu_seqlens_q, context.max_seqlen_q)
+            padded_o = flash_attn_with_kvcache(padded_q, k_cache, v_cache, **kwargs)
+            return _unpad_varlen_o(padded_o, lengths, q.shape[0])
+        return flash_attn_with_kvcache(q, k_cache, v_cache, **kwargs)
+
+    return flash_attn_with_kvcache(q, k_cache, v_cache, **kwargs)
 
 
 @triton.jit
@@ -127,11 +183,14 @@ class Attention(nn.Module):
 
             if verify_or_glue:
                 assert context.context_lens is not None
-                o = flash_attn_with_kvcache(q, k_cache, v_cache,
-                                        cache_seqlens=context.context_lens, page_table=context.block_tables,
-                                        softmax_scale=self.scale, causal=True,
-                                        cu_seqlens_q=context.cu_seqlens_q, max_seqlen_q=context.max_seqlen_q,
-                                        )
+                o = _flash_attn_with_kvcache_compat(
+                    q,
+                    k_cache,
+                    v_cache,
+                    context=context,
+                    softmax_scale=self.scale,
+                    causal=True,
+                )
 
             elif tree_decode:
                 if self.only_prefill_wrapper is not None:
@@ -148,10 +207,14 @@ class Attention(nn.Module):
                 o = prefill_wrapper.run(q, (self.k_cache, self.v_cache))
             else: # single query decode
                 q = q.unsqueeze(1)
-                o = flash_attn_with_kvcache(q, k_cache, v_cache,
-                                            cache_seqlens=context.context_lens, page_table=context.block_tables,
-                                            softmax_scale=self.scale, causal=True,
-                                            )
+                o = _flash_attn_with_kvcache_compat(
+                    q,
+                    k_cache,
+                    v_cache,
+                    context=context,
+                    softmax_scale=self.scale,
+                    causal=True,
+                )
 
         o = o.view(-1, self.num_heads * self.head_dim)
         return o

@@ -36,22 +36,32 @@ def prepare_prefill_payload(
     pixel_values = vlm_inputs.get("pixel_values") if vlm_inputs else None
     image_grid_thw = vlm_inputs.get("image_grid_thw") if vlm_inputs else None
     image_mask = vlm_inputs.get("image_mask") if vlm_inputs else None
-    pv_len = pixel_values.shape[0] if pixel_values is not None else 0
-    pv_dim = pixel_values.shape[1] if pixel_values is not None else 0
+
+    # Async NCCL send/recv requires CUDA tensors. VLM processor outputs are often CPU tensors.
+    if pixel_values is not None:
+        pixel_values = pixel_values.to(device=device, non_blocking=True)
+    if image_grid_thw is not None:
+        image_grid_thw = image_grid_thw.to(device=device, non_blocking=True)
+    if image_mask is not None:
+        image_mask = image_mask.to(device=device, non_blocking=True)
+    pv_numel = pixel_values.numel() if pixel_values is not None else 0
+    pv_ndim = pixel_values.dim() if pixel_values is not None else 0
     thw_nrows = image_grid_thw.shape[0] if image_grid_thw is not None else 0
     mask_len = image_mask.numel() if image_mask is not None else 0
 
+    table_width = int(draft_block_table.shape[1])
+
     # 4) send metadata for tensor reconstruction
     # Layout: [total_new_tokens, batch_size, max_blocks, use_eagle, eagle_act_dim,
-    #          pv_len, pv_dim, thw_nrows, mask_len]
+    #          pv_numel, pv_ndim, thw_nrows, mask_len]
     metadata = torch.tensor([
         input_ids_flat.size(0),
         len(input_id_list),  # batch_size
-        max_blocks,
+        table_width,
         1 if eagle_acts is not None else 0,
         eagle_acts.shape[1] if eagle_acts is not None else 0,
-        pv_len,
-        pv_dim,
+        pv_numel,
+        pv_ndim,
         thw_nrows,
         mask_len,
     ], dtype=torch.int64, device=device)

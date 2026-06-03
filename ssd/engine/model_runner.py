@@ -32,6 +32,9 @@ from ssd.engine.helpers.cudagraph_helpers import (
     capture_glue_decode_cudagraph,
     get_custom_mask,
 )
+
+
+TRACE_ASYNC = os.environ.get("SSD_ASYNC_TRACE", "0") == "1"
     
 
 class ModelRunner:
@@ -648,6 +651,9 @@ class ModelRunner:
         hidden_states: torch.Tensor | None = None
     ) -> list[int] | tuple[list[int], torch.Tensor]:
         _pt = os.environ.get("SSD_PROFILE_TARGET", "0") == "1" and not is_prefill and not last_only
+        if TRACE_ASYNC and is_prefill and self.draft_async:
+            who = "draft" if self.is_draft else "target"
+            print(f"[async_prefill][{who}] ModelRunner.run entering prepare phase", flush=True)
         if _pt:
             torch.cuda.synchronize()
             _r0 = time.perf_counter()
@@ -656,6 +662,12 @@ class ModelRunner:
             input_ids, positions = self.prepare_prefill(seqs)
         else:
             input_ids, positions = self.prepare_decode(seqs, verify=not last_only)
+        if TRACE_ASYNC and is_prefill and self.draft_async:
+            who = "draft" if self.is_draft else "target"
+            print(
+                f"[async_prefill][{who}] ModelRunner.run prepared tensors input_ids={tuple(input_ids.shape)} positions={tuple(positions.shape)}",
+                flush=True,
+            )
         temperatures = self.prepare_sample(seqs) if self.rank == 0 else None
 
         if _pt:
@@ -666,6 +678,16 @@ class ModelRunner:
         vlm_kwargs = {}
         if is_prefill and getattr(self.config, 'is_vlm', False):
             vlm_kwargs = self._collect_vlm_inputs(seqs)
+            if TRACE_ASYNC and self.draft_async:
+                who = "draft" if self.is_draft else "target"
+                pv = vlm_kwargs.get("pixel_values")
+                thw = vlm_kwargs.get("image_grid_thw")
+                mask = vlm_kwargs.get("image_mask")
+                print(
+                    f"[async_prefill][{who}] ModelRunner.run collected vlm pv={tuple(pv.shape) if pv is not None else None} "
+                    f"thw={tuple(thw.shape) if thw is not None else None} mask={tuple(mask.shape) if mask is not None else None}",
+                    flush=True,
+                )
 
         # Handle EAGLE returning (logits, conditioning_vector for next iter)
         conditioning = None
@@ -673,7 +695,14 @@ class ModelRunner:
             logits, conditioning = self.run_model(
                 input_ids, positions, is_prefill, last_only, hidden_states=hidden_states)
         else:
+            if TRACE_ASYNC and is_prefill and self.draft_async:
+                who = "draft" if self.is_draft else "target"
+                print(f"[async_prefill][{who}] ModelRunner.run entering run_model", flush=True)
             logits = self.run_model(input_ids, positions, is_prefill, last_only, hidden_states=hidden_states, vlm_kwargs=vlm_kwargs)
+
+        if TRACE_ASYNC and is_prefill and self.draft_async:
+            who = "draft" if self.is_draft else "target"
+            print(f"[async_prefill][{who}] ModelRunner.run run_model complete", flush=True)
 
         # Clear VLM data from sequences after prefill (no longer needed).
         # In speculative decoding the target runs first; only clear from the draft's run

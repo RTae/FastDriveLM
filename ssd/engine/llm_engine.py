@@ -237,6 +237,16 @@ class LLMEngine:
         elif isinstance(prompt, str):
             prompt = self.tokenizer.encode(prompt)
 
+        lookahead_slack = self.config.speculate_k + 1 if self.config.speculate else 1
+        required_model_len = len(prompt) + sampling_params.max_new_tokens + lookahead_slack
+        if required_model_len > self.config.max_model_len:
+            raise ValueError(
+                "Request exceeds configured max_model_len: "
+                f"prompt_tokens={len(prompt)}, max_new_tokens={sampling_params.max_new_tokens}, "
+                f"lookahead_slack={lookahead_slack}, required={required_model_len}, "
+                f"configured={self.config.max_model_len}. Increase --max-model-len."
+            )
+
         seq = Sequence(prompt, sampling_params,
                        pixel_values=pixel_values,
                        image_grid_thw=image_grid_thw,
@@ -247,6 +257,8 @@ class LLMEngine:
     def step(self, step: InferenceStep):
         t = perf_counter()
         seqs, is_prefill = self.scheduler.schedule()
+        if not seqs:
+            return []
         ttl_tokens = step.prefill(seqs) if is_prefill else step.decode(seqs)
 
         time_taken = perf_counter() - t

@@ -12,6 +12,7 @@ from ssd.utils.async_helpers.nccl_pack import recv_int64
 from ssd.engine.helpers.cudagraph_helpers import flush_draft_profile
 
 PROFILE_DRAFT = os.environ.get("SSD_PROFILE_DRAFT", "0") == "1"
+TRACE_ASYNC = os.environ.get("SSD_ASYNC_TRACE", "0") == "1"
 
 ttl = 0
 ttl_hit = 0
@@ -54,10 +55,12 @@ class DraftRunner(ModelRunner):
 
         # 1) Receive metadata then individual tensors
         # Metadata layout: [total_new_tokens, batch_size, max_blocks, use_eagle, eagle_act_dim,
-        #                    pv_len, pv_dim, thw_nrows, mask_len]
+        #                    pv_numel, pv_ndim, thw_nrows, mask_len]
         metadata = torch.zeros(9, dtype=torch.int64, device=self.device)
         dist.recv(metadata, src=0, group=self.async_pg)
-        total_new_tokens, batch_size, max_blocks, use_eagle, eagle_act_dim, pv_len, pv_dim, thw_nrows, mask_len = metadata.tolist()
+        total_new_tokens, batch_size, max_blocks, use_eagle, eagle_act_dim, pv_numel, pv_ndim, thw_nrows, mask_len = metadata.tolist()
+        if TRACE_ASYNC:
+            print(f"[async_prefill][rank1] recv metadata={metadata.tolist()}", flush=True)
         if use_eagle:
             assert eagle_act_dim == 3 * self.config.d_model_target, (
                 f"EAGLE activation dimension {eagle_act_dim} does not match expected dimension 3 * {self.config.d_model_target}"
@@ -66,6 +69,8 @@ class DraftRunner(ModelRunner):
         # 2) receive fused int64 payload (input_ids + num_tokens + draft_block_table)
         fused_total = total_new_tokens + batch_size + batch_size * max_blocks
         fused = recv_int64(self.async_pg, src=0, total_length=fused_total, device=self.device)
+        if TRACE_ASYNC:
+            print(f"[async_prefill][rank1] recv fused int64 len={fused_total}", flush=True)
         off = 0
         input_ids = fused[off:off + total_new_tokens]; off += total_new_tokens
         num_tokens = fused[off:off + batch_size]; off += batch_size
@@ -78,25 +83,45 @@ class DraftRunner(ModelRunner):
                 total_new_tokens, eagle_act_dim, dtype=self.hf_config.torch_dtype, device=self.device,
             )
             dist.recv(eagle_acts, src=0, group=self.async_pg)
+            if TRACE_ASYNC:
+                print(f"[async_prefill][rank1] recv eagle_acts={tuple(eagle_acts.shape)}", flush=True)
 
         # 3) receive VLM inputs if present
         vlm_kwargs = {}
-        if pv_len > 0:
-            pixel_values = torch.empty(pv_len, pv_dim, dtype=self.hf_config.torch_dtype, device=self.device)
+        if pv_numel > 0:
+            pv_shape = torch.empty(pv_ndim, dtype=torch.int64, device=self.device)
+            dist.recv(pv_shape, src=0, group=self.async_pg)
+            pv_shape_list = [int(x) for x in pv_shape.tolist()]
+            pixel_values = torch.empty(*pv_shape_list, dtype=self.hf_config.torch_dtype, device=self.device)
+            assert pixel_values.numel() == pv_numel, (
+                f"pixel_values numel mismatch: expected {pv_numel}, got {pixel_values.numel()}, shape={pv_shape_list}"
+            )
             dist.recv(pixel_values, src=0, group=self.async_pg)
             vlm_kwargs["pixel_values"] = pixel_values
+            if TRACE_ASYNC:
+                print(f"[async_prefill][rank1] recv pixel_values={tuple(pixel_values.shape)}", flush=True)
         if thw_nrows > 0:
             image_grid_thw = torch.empty(thw_nrows, 3, dtype=torch.int64, device=self.device)
             dist.recv(image_grid_thw, src=0, group=self.async_pg)
             vlm_kwargs["image_grid_thw"] = image_grid_thw
+            if TRACE_ASYNC:
+                print(f"[async_prefill][rank1] recv image_grid_thw={tuple(image_grid_thw.shape)}", flush=True)
         if mask_len > 0:
             image_mask_i8 = torch.empty(mask_len, dtype=torch.int8, device=self.device)
             dist.recv(image_mask_i8, src=0, group=self.async_pg)
             vlm_kwargs["image_mask"] = image_mask_i8.bool()
+            if TRACE_ASYNC:
+                print(f"[async_prefill][rank1] recv image_mask={tuple(image_mask_i8.shape)}", flush=True)
 
+        if TRACE_ASYNC:
+            print("[async_prefill][rank1] preparing prefill context", flush=True)
         prefill_ctxt = self.prepare_prefill_ctxt(num_tokens, draft_block_table)
+        if TRACE_ASYNC:
+            print("[async_prefill][rank1] prepared prefill context", flush=True)
 
         # 5) set up context exactly like prepare_prefill() does:
+        if TRACE_ASYNC:
+            print("[async_prefill][rank1] setting context", flush=True)
         set_context(
             is_prefill=True,
             cu_seqlens_q=prefill_ctxt["cu_seqlens_q"],
@@ -109,11 +134,17 @@ class DraftRunner(ModelRunner):
 
         # 6) run the draft model in prefill mode
         positions = prefill_ctxt["positions"]
+        if TRACE_ASYNC:
+            print("[async_prefill][rank1] entering run_model", flush=True)
         self.run_model(input_ids, positions, is_prefill=True, last_only=True,
                        hidden_states=eagle_acts, vlm_kwargs=vlm_kwargs if vlm_kwargs else None)
+        if TRACE_ASYNC:
+            print("[async_prefill][rank1] run_model complete", flush=True)
 
         # 7) clean up
         reset_context()
+        if TRACE_ASYNC:
+            print("[async_prefill][rank1] reset_context complete", flush=True)
 
     def _reset_tree_cache_tensors(self):
         """Reset tensor-backed tree cache to empty."""
@@ -411,6 +442,42 @@ class DraftRunner(ModelRunner):
         # Calculate block indices and offsets for ALL positions
         block_indices = (positions // self.block_size).to(torch.int64)
         offsets = (positions % self.block_size).to(torch.int32)
+
+        table_width = int(draft_block_table.shape[1])
+        max_block_idx = int(block_indices.max().item()) if block_indices.numel() > 0 else -1
+        if max_block_idx >= table_width:
+            needed_width = max_block_idx + 1
+            # Defensive recovery for async prefill: if sender provides an undersized
+            # draft block table, expand it locally to avoid CUDA index asserts.
+            expanded = torch.empty(B, needed_width, dtype=torch.int32, device=self.device)
+            expanded.fill_(-1)
+
+            if table_width > 0:
+                expanded[:, :table_width] = draft_block_table
+
+            for i in range(B):
+                if table_width > 0:
+                    valid_prefix = expanded[i, :table_width]
+                    valid_prefix = valid_prefix[valid_prefix >= 0]
+                    start_block = int(valid_prefix[-1].item()) + 1 if valid_prefix.numel() > 0 else 0
+                else:
+                    start_block = 0
+                fill_count = needed_width - table_width
+                if fill_count > 0:
+                    expanded[i, table_width:needed_width] = torch.arange(
+                        start_block,
+                        start_block + fill_count,
+                        dtype=torch.int32,
+                        device=self.device,
+                    )
+
+            print(
+                "[draft_async_prefill] WARNING: expanded undersized draft_block_table "
+                f"from width={table_width} to width={needed_width} "
+                f"(max_block_idx={max_block_idx}, num_tokens={num_tokens.tolist()})",
+                flush=True,
+            )
+            draft_block_table = expanded
 
         # Get block IDs for each position from dbt
         block_ids = draft_block_table[batch_indices, block_indices]

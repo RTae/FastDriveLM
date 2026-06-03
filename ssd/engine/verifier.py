@@ -9,6 +9,9 @@ from ssd.utils.verify import verify
 from ssd.engine.helpers.speculate_types import SpeculateResult, VerifyResult, VerifierBase
 
 
+TRACE_ASYNC = os.environ.get("SSD_ASYNC_TRACE", "0") == "1"
+
+
 class Verifier(VerifierBase):
     def __init__(
         self,
@@ -30,7 +33,11 @@ class Verifier(VerifierBase):
         self.metrics = metrics
 
     def prefill(self, seqs: list[Sequence], eagle: bool = False) -> VerifyResult:
+        if TRACE_ASYNC:
+            print(f"[async_prefill][rank0] verifier.prefill entering target_model_runner.call with {len(seqs)} seqs", flush=True)
         result = self.target_model_runner.call("run", seqs, True)
+        if TRACE_ASYNC:
+            print("[async_prefill][rank0] verifier.prefill target_model_runner.call complete", flush=True)
         if eagle:
             token_ids, eagle_acts = result
         else:

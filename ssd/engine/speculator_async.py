@@ -1,5 +1,6 @@
 import torch
 import torch.distributed as dist
+import os
 from transformers import AutoTokenizer
 
 from ssd.engine.helpers.speculate_types import SpeculateResult, VerifyResult, SpeculatorBase
@@ -40,6 +41,7 @@ class SpeculatorAsync(SpeculatorBase):
         self.verbose = verbose
         self.K = lookahead
         self.is_vlm = is_vlm
+        self._trace = os.environ.get("SSD_ASYNC_TRACE", "0") == "1"
 
         # Pre-allocate handshake send/recv buffers (reused every step)
         self._alloc_handshake_bufs(1)
@@ -95,24 +97,45 @@ class SpeculatorAsync(SpeculatorBase):
                     "image_mask": torch.cat(all_mask, dim=0) if all_mask else None,
                 }
 
-        max_blocks = (self.max_model_len + self.kvcache_block_size - 1) // self.kvcache_block_size
+        # Use the actual per-sequence draft block-table width for this batch.
+        # Using a fixed width derived from max_model_len can desync the wire format
+        # if seq.draft_block_table is wider.
+        max_blocks = max(len(seq.draft_block_table) for seq in seqs)
         cmd, metadata, input_ids, num_tokens, draft_block_table, eagle_acts, pixel_values, image_grid_thw, image_mask = prepare_prefill_payload(
             input_id_list, eagle_acts, self.device, max_blocks,
             [seq.draft_block_table for seq in seqs],
             vlm_inputs=vlm_inputs,
         )
+        if self._trace:
+            print(
+                f"[async_prefill][rank0] send metadata={metadata.tolist()} input_ids={tuple(input_ids.shape)} "
+                f"num_tokens={tuple(num_tokens.shape)} dbt={tuple(draft_block_table.shape)}",
+                flush=True,
+            )
         dist.send(cmd, dst=self.draft_runner_rank, group=self.async_pg)
         dist.send(metadata, dst=self.draft_runner_rank, group=self.async_pg)
         send_int64(self.async_pg, self.draft_runner_rank,
                    input_ids, num_tokens, draft_block_table.to(torch.int64))
+        if self._trace:
+            print("[async_prefill][rank0] sent fused int64 payload", flush=True)
         if eagle_acts is not None:
             dist.send(eagle_acts, dst=self.draft_runner_rank, group=self.async_pg)
+            if self._trace:
+                print(f"[async_prefill][rank0] sent eagle_acts={tuple(eagle_acts.shape)}", flush=True)
         if pixel_values is not None:
+            pv_shape = torch.tensor(pixel_values.shape, dtype=torch.int64, device=self.device)
+            dist.send(pv_shape, dst=self.draft_runner_rank, group=self.async_pg)
             dist.send(pixel_values.to(self.draft_dtype), dst=self.draft_runner_rank, group=self.async_pg)
+            if self._trace:
+                print(f"[async_prefill][rank0] sent pixel_values={tuple(pixel_values.shape)}", flush=True)
         if image_grid_thw is not None:
             dist.send(image_grid_thw.to(torch.int64), dst=self.draft_runner_rank, group=self.async_pg)
+            if self._trace:
+                print(f"[async_prefill][rank0] sent image_grid_thw={tuple(image_grid_thw.shape)}", flush=True)
         if image_mask is not None:
             dist.send(image_mask.to(torch.int8), dst=self.draft_runner_rank, group=self.async_pg)
+            if self._trace:
+                print(f"[async_prefill][rank0] sent image_mask={tuple(image_mask.shape)}", flush=True)
         return SpeculateResult([], [])
 
     def speculate(self, seqs: list[Sequence], verify_result: VerifyResult) -> SpeculateResult:

@@ -12,6 +12,10 @@ from ssd.engine.helpers.speculate_types import SpeculatorBase, VerifierBase, Ver
 from ssd.utils.misc import decode_tokens
 
 
+TRACE_ASYNC = os.environ.get("SSD_ASYNC_TRACE", "0") == "1"
+ASYNC_PREFILL_PARALLEL = os.environ.get("SSD_ASYNC_PREFILL_PARALLEL", "0") == "1"
+
+
 class InferenceStep(ABC):
 
     def __init__(self, scheduler: Scheduler):
@@ -75,8 +79,24 @@ class SpecDecodeStep(InferenceStep):
         # When doing async speculation and not Eagle, we can do draft and target prefills in parallel.
         if not self.eagle and self.async_spec:
             empty_verify_result = VerifyResult([], [], None)
-            self.speculator.prefill(seqs, empty_verify_result)
-            verify_result = self.verifier.prefill(seqs, eagle=False)
+            if ASYNC_PREFILL_PARALLEL:
+                if TRACE_ASYNC:
+                    print("[async_prefill][rank0] calling speculator.prefill", flush=True)
+                self.speculator.prefill(seqs, empty_verify_result)
+                if TRACE_ASYNC:
+                    print("[async_prefill][rank0] speculator.prefill complete; calling verifier.prefill", flush=True)
+                verify_result = self.verifier.prefill(seqs, eagle=False)
+                if TRACE_ASYNC:
+                    print("[async_prefill][rank0] verifier.prefill complete", flush=True)
+            else:
+                if TRACE_ASYNC:
+                    print("[async_prefill][rank0] serialized prefill: calling verifier.prefill", flush=True)
+                verify_result = self.verifier.prefill(seqs, eagle=False)
+                if TRACE_ASYNC:
+                    print("[async_prefill][rank0] serialized prefill: verifier.prefill complete; calling speculator.prefill", flush=True)
+                self.speculator.prefill(seqs, empty_verify_result)
+                if TRACE_ASYNC:
+                    print("[async_prefill][rank0] serialized prefill: speculator.prefill complete", flush=True)
         else:
             verify_result = self.verifier.prefill(seqs, eagle=self.eagle)
             self.speculator.prefill(seqs, verify_result)
