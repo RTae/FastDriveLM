@@ -8,17 +8,11 @@
 1. Install Python dependencies and set up virtual environment
 ```bash
 uv sync
-uv pip install flash-attn --no-build-isolation
 ```
 
 2. Install SpasSageAttn for the SpargeAttn backend
 ```bash
 uv pip install --python .venv/bin/python -e ./spas_sage_attn
-```
-
-3. Install vLLM (using uv add direclty didnt work)
-```bash
-uv pip install vllm --torch-backend=auto
 ```
 
 ## How to enter the virtual environment
