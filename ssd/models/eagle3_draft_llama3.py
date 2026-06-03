@@ -29,7 +29,7 @@ class Eagle3Attention(nn.Module):
         draft_async: bool,
         tp_group: dist.ProcessGroup | None,
         tp_size: int,
-        attn_backend: str = "sage",
+        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ):
         super().__init__()
@@ -111,7 +111,7 @@ class Eagle3DecoderLayer(nn.Module):
         draft_async: bool,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "sage",
+        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ):
         super().__init__()
@@ -174,7 +174,7 @@ class Eagle3DraftModel(nn.Module):
         eagle_layers: list[int] | None = None,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "sage",
+        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
@@ -239,7 +239,7 @@ class Eagle3DraftForCausalLM(nn.Module):
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
         debug_mode: bool = False,
-        attn_backend: str = "sage",
+        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()

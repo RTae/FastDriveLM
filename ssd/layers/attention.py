@@ -172,7 +172,7 @@ class Attention(nn.Module):
         use_eagle: bool = False,
         F: int = 1,
         K: int = 1,
-        attn_backend: str = "sage",
+        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ):
         super().__init__()

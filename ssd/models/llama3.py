@@ -29,7 +29,7 @@ class LlamaAttention(nn.Module):  # Renamed from Qwen3Attention
         draft_async: bool = False,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "sage",
+        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
@@ -150,7 +150,7 @@ class LlamaDecoderLayer(nn.Module):
         draft_async: bool,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "sage",
+        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__() 
@@ -221,7 +221,7 @@ class LlamaModel(nn.Module):
         eagle_layers: list[int] | None = None,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "sage",
+        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
@@ -305,7 +305,7 @@ class LlamaForCausalLM(nn.Module):
         draft_async: bool = False,
         tp_group: dist.ProcessGroup | None = None,
         tp_size: int = 1,
-        attn_backend: str = "sage",
+        attn_backend: str = "sparge_sage",
         sparge_topk: float = 0.5,
     ) -> None:
         super().__init__()
