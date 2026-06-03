@@ -143,18 +143,37 @@ python tools/inference_sd_vlm_vllm.py \
 
 ### Ablation runner
 
-Use `tools/run_vllm_ablation.py` when you want the four common ablation modes without manually typing each command.
+If you want one command that runs the baseline plus the vLLM ablation modes and prints a summary table at the end, use the shell wrapper:
 
 ```bash
-python tools/run_vllm_ablation.py \
-    --target-model outputs/qwen3vl \
+scripts/run_vllm_report.sh
+```
+
+#### Smoke test
+
+The defaults already cover the common smoke setup:
+
+```bash
+scripts/run_vllm_report.sh \
     --attn-backend FLASH_ATTN \
     --run-label smoke \
     --max-samples 10 \
     --max-new-tokens 64
 ```
 
-This runs the following modes into `outputs/qwen3vl/`:
+#### Full test
+
+Run the full validation split and write `*_full.json` metrics files:
+
+```bash
+scripts/run_vllm_report.sh \
+    --attn-backend FLASH_ATTN \
+    --full-test \
+    --run-label full \
+    --max-new-tokens 128
+```
+
+This wrapper runs the Hugging Face baseline, then the following vLLM ablation modes into `outputs/qwen3vl/`, and prints a final summary table from the generated metrics files:
 
 - `base`: plain vLLM
 - `prefix`: plain vLLM with `--use-prefix-caching`
@@ -164,8 +183,7 @@ This runs the following modes into `outputs/qwen3vl/`:
 You can also run only a subset:
 
 ```bash
-python tools/run_vllm_ablation.py \
-    --target-model outputs/qwen3vl \
+scripts/run_vllm_report.sh \
     --modes prefix full \
     --attn-backend FLASH_ATTN \
     --run-label smoke \
