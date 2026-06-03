@@ -3,6 +3,7 @@ import inspect
 from functools import partial
 from pathlib import Path
 import json
+import sys
 import time
 
 import torch
@@ -18,6 +19,11 @@ from transformers import (
     GenerationConfig,
 )
 from transformers.generation.stopping_criteria import StoppingCriteria, StoppingCriteriaList
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from drivevlms.build import build_collate_fn
 
