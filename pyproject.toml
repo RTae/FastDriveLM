@@ -26,13 +26,12 @@ dependencies = [
     "rouge-score>=0.1.2",
     "nltk>=3.9.4",
     "pycocoevalcap>=1.2",
-    "flashinfer-python>=0.6.11.post3",
     "tiktoken>=0.13.0",
     "xxhash>=3.7.0",
     "einops>=0.8.0",
     "ninja>=1.13.0",
     "nvidia-cusparselt-cu12>=0.7.1",
-    "vllm>=0.1.2",
+    "vllm>=0.22.0",
     "flash-attn>=2.8.3",
 ]
 
