@@ -122,7 +122,10 @@ Optional runtime features:
 - `--attn-backend auto|FLASH_ATTN|FLASHINFER|TRITON_ATTN|FLEX_ATTENTION`: explicitly select the vLLM attention backend.
 - `--use-prefix-caching` / `--no-use-prefix-caching`: explicitly enable or disable vLLM prefix caching.
 - `--enable-speculative-decoding --speculative-method ngram --spec-k <int>`: enable ngram-based speculative decoding.
+- `--speculative-method ngram_gpu --spec-k <int>`: enable GPU ngram speculative decoding when supported by the installed vLLM build.
 - `--enable-speculative-decoding --speculative-method draft_model --draft-model <path> --spec-k <int>`: enable draft-model speculative decoding when the installed vLLM build and model type support it.
+- `--speculative-method eagle --eagle-model <path>` or `--speculative-method eagle3 --eagle3-model <path>`: enable vLLM EAGLE/EAGLE3 speculative decoding with a compatible EAGLE head/model.
+- `--speculative-method medusa --medusa-model <path>`: enable vLLM Medusa-head speculative decoding with a compatible Medusa-head model.
 - `--enable-speculative-decoding --speculative-method suffix ...`: enable suffix decoding when the extra dependency is installed.
 
 Current status with `vllm 0.19.1`:
@@ -131,6 +134,7 @@ Current status with `vllm 0.19.1`:
 - prefix caching works
 - `ngram` speculative decoding works on Qwen3-VL
 - draft-model speculative decoding is not supported for multimodal models such as Qwen3-VL
+- EAGLE, EAGLE3, and Medusa are exposed as vLLM pass-through speculative methods, but they require compatible speculator/head checkpoints; they are not the same as the repo's 2B Qwen3-VL LoRA draft adapter
 - `suffix` speculative decoding requires `arctic-inference==0.1.1`
 
 In practice, the common workflow is:
@@ -218,6 +222,45 @@ scripts/run_vllm_report.sh \
 `ngram` speculative decoding disables async scheduling in the current vLLM build. That warning is expected.
 
 Draft-model speculative decoding is still blocked for multimodal Qwen3-VL, and suffix decoding needs `arctic-inference==0.1.1` before it can be tested.
+
+### Compare vLLM speculative methods
+
+Use `tools/compare_speculative_decoding.py` on a GPU machine to run several vLLM methods on a small dataset subset with the same sample count, token budget, and output directory, then print one comparison table. This comparison runner is subset-only by default and requires `--max-samples N` with `N > 0` unless you intentionally pass `--allow-full-dataset`.
+
+Model-free comparison:
+
+```bash
+python tools/compare_speculative_decoding.py \
+    --target-model outputs/qwen3vl \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output-dir outputs/qwen3vl/spec_compare \
+    --run-label smoke \
+    --methods baseline ngram ngram_gpu suffix \
+    --max-samples 10 \
+    --max-new-tokens 64 \
+    --warmup-steps 2 \
+    --metrics
+```
+
+Comparison including vLLM-provided model/head methods:
+
+```bash
+python tools/compare_speculative_decoding.py \
+    --target-model outputs/qwen3vl \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output-dir outputs/qwen3vl/spec_compare \
+    --run-label heads \
+    --methods baseline ngram eagle eagle3 medusa \
+    --eagle-model /path/to/eagle/head-or-model \
+    --eagle3-model /path/to/eagle3/head-or-model \
+    --medusa-model /path/to/medusa/head-model \
+    --max-samples 10 \
+    --max-new-tokens 64 \
+    --warmup-steps 2 \
+    --metrics
+```
+
+If a method is unsupported by your installed vLLM build or incompatible with Qwen3-VL, the comparison runner records the failure and continues by default. Use `--no-continue-on-error` when you want the first failure to stop the run.
 
 ### Custom speculative VLM script
 
