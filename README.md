@@ -29,6 +29,20 @@ uv pip install --no-deps llmcompressor==0.10.0.2
 project dependency because the current vLLM lock pins `compressed-tensors`.
 Using `--no-deps` keeps the inference environment stable.
 
+Do not use `uv add llmcompressor` here. `uv add` tries to add llmcompressor to
+the locked project dependency graph, but current llmcompressor releases conflict
+with this repo's `vllm==0.22.0` dependencies. Use the `uv pip install --no-deps`
+command above, or run:
+
+```bash
+make install_quant_deps
+```
+
+The quantization script includes a compatibility shim for the
+`compressed_tensors.utils.match._match_name` vs `match_name` API difference seen
+when `llmcompressor==0.10.0.2` is installed into the vLLM environment with
+`--no-deps`.
+
 ## How to enter the virtual environment
 ```bash
 source .venv/bin/activate
@@ -115,6 +129,11 @@ If `outputs/qwen3vl/adapter_config.json` already points at the local base model,
 `--base-model` can be omitted. If it points at `Qwen/Qwen3-VL-8B-Instruct`, the
 script automatically prefers `base_models/Qwen/Qwen3-VL-8B-Instruct` when that
 directory exists.
+
+If quantization fails with LoRA shape mismatches like `4096` vs `2048`, the
+adapter and base model sizes do not match. For example, the 8B Qwen3-VL adapter
+must use `base_models/Qwen/Qwen3-VL-8B-Instruct`; the 2B draft adapter must use
+`base_models/Qwen/Qwen3-VL-2B-Instruct`.
 
 Run the quantized model directly with the existing vLLM inference script:
 
