@@ -172,6 +172,104 @@ def _find_local_base_models_by_hidden_size(hidden_size: int) -> list[Path]:
     return candidates
 
 
+def _has_full_model_weights(path: Path) -> bool:
+    return (
+        (path / "model.safetensors").exists()
+        or (path / "pytorch_model.bin").exists()
+        or (path / "model.safetensors.index.json").exists()
+        or (path / "pytorch_model.bin.index.json").exists()
+    )
+
+
+def _hidden_size_from_config(config: dict[str, Any]) -> int | None:
+    for key in ("text_config", "llm_config", "language_config"):
+        child = config.get(key)
+        if isinstance(child, dict) and child.get("hidden_size") is not None:
+            return int(child["hidden_size"])
+
+    if config.get("hidden_size") is not None:
+        return int(config["hidden_size"])
+
+    return None
+
+
+def _read_model_hidden_size(model_path: str | Path) -> int | None:
+    path = Path(model_path)
+    if not path.exists() or not path.is_dir():
+        return None
+
+    config_path = path / "config.json"
+    if not config_path.exists():
+        return None
+
+    with config_path.open("r", encoding="utf-8") as f:
+        return _hidden_size_from_config(json.load(f))
+
+
+def _iter_adapter_tensor_shapes(adapter_path: str | Path):
+    path = Path(adapter_path)
+    safetensor_files = sorted(path.glob("adapter_model*.safetensors"))
+    bin_files = sorted(path.glob("adapter_model*.bin"))
+
+    for weight_path in safetensor_files:
+        try:
+            from safetensors import safe_open
+        except ImportError:
+            break
+
+        with safe_open(weight_path, framework="pt", device="cpu") as f:
+            for key in f.keys():
+                shape = tuple(f.get_slice(key).get_shape())
+                yield key, shape, weight_path
+
+    for weight_path in bin_files:
+        state_dict = torch.load(weight_path, map_location="cpu")
+        if isinstance(state_dict, dict) and "state_dict" in state_dict:
+            state_dict = state_dict["state_dict"]
+        if not isinstance(state_dict, dict):
+            continue
+        for key, value in state_dict.items():
+            shape = tuple(value.shape) if hasattr(value, "shape") else None
+            if shape is not None:
+                yield key, shape, weight_path
+
+
+def _infer_adapter_hidden_size(adapter_path: str | Path) -> tuple[int | None, str | None]:
+    fallback: tuple[int, str] | None = None
+    for key, shape, weight_path in _iter_adapter_tensor_shapes(adapter_path):
+        if len(shape) != 2:
+            continue
+
+        lower_key = key.lower()
+        source = f"{weight_path.name}:{key}"
+        if "q_proj" in lower_key and "lora_a" in lower_key:
+            return int(shape[1]), source
+        if "q_proj" in lower_key and "lora_b" in lower_key:
+            return int(shape[0]), source
+        if fallback is None and "self_attn" in lower_key and "lora_a" in lower_key:
+            fallback = (int(shape[1]), source)
+
+    if fallback is not None:
+        return fallback
+    return None, None
+
+
+def _find_local_base_models_by_hidden_size(hidden_size: int) -> list[Path]:
+    base_models_dir = REPO_ROOT / "base_models"
+    if not base_models_dir.exists():
+        return []
+
+    candidates = []
+    for config_path in sorted(base_models_dir.rglob("config.json")):
+        model_dir = config_path.parent
+        if not _has_full_model_weights(model_dir):
+            continue
+        if _read_model_hidden_size(model_dir) == hidden_size:
+            candidates.append(model_dir)
+
+    return candidates
+
+
 def resolve_base_model(args) -> str:
     if args.base_model:
         return str(_resolve_maybe_local_reference(args.base_model))
@@ -193,6 +291,49 @@ def resolve_base_model(args) -> str:
         "base_model_name_or_path in outputs/qwen3vl/adapter_config.json. "
         "For your layout this is usually "
         "base_models/Qwen/Qwen3-VL-8B-Instruct."
+    )
+
+
+def resolve_compatible_base_model(args, adapter_path: str | None) -> str:
+    base_model = resolve_base_model(args)
+    if not adapter_path:
+        return base_model
+
+    adapter_hidden, adapter_shape_source = _infer_adapter_hidden_size(adapter_path)
+    base_hidden = _read_model_hidden_size(base_model)
+    if adapter_hidden is None or base_hidden is None:
+        return base_model
+    if adapter_hidden == base_hidden:
+        return base_model
+
+    matching_bases = _find_local_base_models_by_hidden_size(adapter_hidden)
+    if not args.base_model and matching_bases:
+        selected_base = matching_bases[0]
+        print(
+            "[quantize] adapter/base hidden_size mismatch: "
+            f"adapter expects {adapter_hidden}, resolved base has {base_hidden}. "
+            f"Auto-selecting matching local base: {selected_base}",
+            flush=True,
+        )
+        return str(selected_base)
+
+    matching_hint = ""
+    if matching_bases:
+        matching_hint = "\nMatching local base model candidate(s):\n" + "\n".join(
+            f"  - {path}" for path in matching_bases
+        )
+
+    raise ValueError(
+        "LoRA adapter and base model are incompatible.\n"
+        f"Adapter path: {adapter_path}\n"
+        f"Adapter hidden_size: {adapter_hidden}"
+        f" (inferred from {adapter_shape_source})\n"
+        f"Base model path: {base_model}\n"
+        f"Base model hidden_size: {base_hidden}\n"
+        "This usually means an 8B LoRA adapter is being merged into a 2B "
+        "Qwen3-VL base, or the reverse. Pass the matching --base-model or fix "
+        "base_model_name_or_path in adapter_config.json."
+        f"{matching_hint}"
     )
 
 
@@ -393,7 +534,9 @@ def _supports_kwarg(fn, key: str) -> bool:
 
 
 def _patch_compressed_tensors_match_alias() -> None:
+def _patch_compressed_tensors_match_alias() -> None:
     try:
+        import compressed_tensors.utils.match as match_utils
         import compressed_tensors.utils.match as match_utils
     except ImportError:
         return
@@ -680,6 +823,7 @@ def parse_args():
 def main():
     args = parse_args()
     adapter_path = validate_adapter_path(args.adapter_path)
+    base_model = resolve_compatible_base_model(args, adapter_path)
     base_model = resolve_compatible_base_model(args, adapter_path)
     processor_source = base_model
 

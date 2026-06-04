@@ -336,7 +336,7 @@ def build_llm(args, model_reference: str, lora_path: str | None):
         "tokenizer": args.processor_path or model_reference,
         "trust_remote_code": resolve_trust_remote_code(args, model_reference),
         "dtype": DTYPES[args.dtype],
-        "device": args.device,
+        # "device": args.device,
         "max_model_len": args.max_model_len,
         "tensor_parallel_size": args.tensor_parallel_size,
         "gpu_memory_utilization": args.gpu_memory_utilization,
@@ -581,7 +581,7 @@ def parse_args():
         default=None,
         help="Override trust_remote_code. Defaults to auto for Qwen and Phi models.",
     )
-    parser.add_argument("--device", default="cuda", help="Device passed through to vLLM when supported.")
+    # parser.add_argument("--device", default="cuda", help="Device passed through to vLLM when supported.")
     parser.add_argument(
         "--attn-implementation",
         choices=VLLM_ATTN_IMPLEMENTATIONS,
