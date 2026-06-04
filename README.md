@@ -20,6 +20,15 @@ uv pip install --python .venv/bin/python -e ./spas_sage_attn
 uv pip install vllm --torch-backend=auto
 ```
 
+4. Install LLM Compressor for INT4/AWQ quantization
+```bash
+uv pip install --no-deps llmcompressor==0.10.0.2
+```
+
+`llmcompressor` is installed as a quantization-time tool instead of a core
+project dependency because the current vLLM lock pins `compressed-tensors`.
+Using `--no-deps` keeps the inference environment stable.
+
 ## How to enter the virtual environment
 ```bash
 source .venv/bin/activate
@@ -84,6 +93,63 @@ after running this script, the data will be organized as follows:
 ```
 
 ## Run inference
+
+### Quantize Qwen3-VL with LLM Compressor
+
+The fine-tuned Qwen3-VL checkpoints in this repo are LoRA adapters. For INT4
+AWQ inference, first merge the adapter into the local base model, then save a
+compressed `compressed-tensors` checkpoint for vLLM:
+
+```bash
+python tools/quantize_qwen3vl_awq.py \
+    --adapter-path outputs/qwen3vl \
+    --base-model base_models/Qwen/Qwen3-VL-8B-Instruct \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output-dir outputs/qwen3vl_awq_int4 \
+    --num-calibration-samples 256 \
+    --max-seq-length 2048 \
+    --scheme W4A16_ASYM
+```
+
+If `outputs/qwen3vl/adapter_config.json` already points at the local base model,
+`--base-model` can be omitted. If it points at `Qwen/Qwen3-VL-8B-Instruct`, the
+script automatically prefers `base_models/Qwen/Qwen3-VL-8B-Instruct` when that
+directory exists.
+
+Run the quantized model directly with the existing vLLM inference script:
+
+```bash
+python tools/inference_vllm.py \
+    --model-path outputs/qwen3vl_awq_int4 \
+    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl_awq_int4/infer_results_vllm.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl_awq_int4/metrics_vllm.json \
+    --warmup-steps 2 \
+    --max-samples 20
+```
+
+To run unquantized and quantized vLLM inference back-to-back, evaluate both, and
+write a compact speed/accuracy comparison:
+
+```bash
+python tools/compare_quantized_inference.py \
+    --baseline-model outputs/qwen3vl \
+    --baseline-base-model base_models/Qwen/Qwen3-VL-8B-Instruct \
+    --quantized-model outputs/qwen3vl_awq_int4 \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --refs datasets/DriveLM_nuScenes/refs/val_cot.json \
+    --max-samples 20 \
+    --warmup-steps 2
+```
+
+Makefile shortcuts:
+
+```bash
+make quantize_qwen3vl_awq
+make compare_qwen3vl_quant
+```
 
 ### Performance comparison
 
