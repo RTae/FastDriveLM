@@ -1,6 +1,10 @@
 import argparse
+import importlib.util
 import inspect
 import json
+import multiprocessing as mp
+import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -118,22 +122,160 @@ def _resolve_image_path(path: str) -> str:
     return str(image_path)
 
 
-def _load_images(image_paths: list[str], limit: int) -> list[Any]:
-    from PIL import Image
+def _load_images(image_paths: list[str]) -> list[Image.Image]:
+    return [Image.open(_resolve_image_path(path)).convert("RGB") for path in image_paths]
 
-    if len(image_paths) < limit:
-        raise ValueError(f"Expected at least {limit} images, got {len(image_paths)}")
-    return [
-        Image.open(_resolve_image_path(path)).convert("RGB")
-        for path in image_paths[:limit]
+
+def _resolve_model_and_lora(model_or_adapter: str) -> tuple[str, str | None, str | None]:
+    path = Path(model_or_adapter)
+    if not path.is_absolute():
+        path = (REPO_ROOT / path).resolve()
+
+    adapter_config_path = path / "adapter_config.json"
+    if adapter_config_path.exists():
+        with adapter_config_path.open("r", encoding="utf-8") as f:
+            adapter_config = json.load(f)
+
+        base_model = adapter_config.get("base_model_name_or_path")
+        if not base_model:
+            raise ValueError(f"LoRA adapter is missing base_model_name_or_path: {adapter_config_path}")
+
+        base_path = Path(base_model)
+        if not base_path.is_absolute():
+            repo_base = (REPO_ROOT / base_path).resolve()
+            if repo_base.exists():
+                base_path = repo_base
+
+        return str(base_path), str(path), str(base_path)
+
+    return str(path), None, str(path)
+
+
+def _resolve_vllm_model_source(model_or_adapter: str, dtype_name: str) -> tuple[str, str]:
+    model_reference, lora_path, processor_source = _resolve_model_and_lora(model_or_adapter)
+    if lora_path is not None:
+        model_reference = _merge_lora_for_vllm(processor_source, lora_path, dtype_name)
+        processor_source = model_reference
+    return model_reference, processor_source
+
+
+def _torch_dtype_from_arg(dtype_name: str):
+    if dtype_name == "float16":
+        return torch.float16
+    if dtype_name == "bfloat16":
+        return torch.bfloat16
+    if dtype_name == "float32":
+        return torch.float32
+    return None
+
+
+def _merged_model_dir(lora_path: str) -> Path:
+    adapter_dir = Path(lora_path)
+    return adapter_dir / ".vllm_merged_model"
+
+
+def _copy_tokenizer_assets(source_dir: str, destination_dir: Path) -> None:
+    asset_names = [
+        "added_tokens.json",
+        "chat_template.json",
+        "chat_template.jinja",
+        "merges.txt",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
     ]
+    for name in asset_names:
+        source_path = Path(source_dir) / name
+        if source_path.exists():
+            shutil.copy2(source_path, destination_dir / name)
 
 
-def _sample_to_vllm_request(
-    sample: dict,
-    processor,
-    limit_mm_images: int,
-) -> tuple[dict, str, str]:
+def _merge_lora_for_vllm(base_model: str, lora_path: str, dtype_name: str) -> str:
+    merged_dir = _merged_model_dir(lora_path)
+    marker_path = merged_dir / "merge_meta.json"
+    expected_meta = {
+        "base_model": str(Path(base_model).resolve()),
+        "adapter_path": str(Path(lora_path).resolve()),
+    }
+
+    if merged_dir.exists() and marker_path.exists():
+        with marker_path.open("r", encoding="utf-8") as f:
+            current_meta = json.load(f)
+        if current_meta == expected_meta and (merged_dir / "config.json").exists():
+            _copy_tokenizer_assets(base_model, merged_dir)
+            print(f"[inference_sd_vlm_vllm] reusing merged model cache: {merged_dir}", flush=True)
+            return str(merged_dir)
+
+    if merged_dir.exists():
+        shutil.rmtree(merged_dir)
+    merged_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"[inference_sd_vlm_vllm] merging LoRA adapter for vLLM: {lora_path}", flush=True)
+    from peft import PeftModel
+    from transformers import AutoModelForImageTextToText
+
+    model_kwargs = {
+        "trust_remote_code": True,
+        "low_cpu_mem_usage": True,
+    }
+    torch_dtype = _torch_dtype_from_arg(dtype_name)
+    if torch_dtype is not None:
+        model_kwargs["torch_dtype"] = torch_dtype
+
+    base = AutoModelForImageTextToText.from_pretrained(base_model, **model_kwargs)
+    merged = PeftModel.from_pretrained(base, lora_path).merge_and_unload()
+    merged.save_pretrained(merged_dir, safe_serialization=True)
+
+    processor = AutoProcessor.from_pretrained(
+        base_model,
+        trust_remote_code=True,
+        local_files_only=True,
+        use_fast=False,
+    )
+    processor.save_pretrained(merged_dir)
+    _copy_tokenizer_assets(base_model, merged_dir)
+
+    generation_config_path = Path(base_model) / "generation_config.json"
+    if generation_config_path.exists():
+        shutil.copy2(generation_config_path, merged_dir / "generation_config.json")
+
+    with marker_path.open("w", encoding="utf-8") as f:
+        json.dump(expected_meta, f, indent=2)
+
+    return str(merged_dir)
+
+
+def _load_model_type(model_path: str) -> str | None:
+    config_path = Path(model_path) / "config.json"
+    if not config_path.exists():
+        return None
+
+    with config_path.open("r", encoding="utf-8") as f:
+        return json.load(f).get("model_type")
+
+
+def _is_multimodal_model(model_path: str) -> bool:
+    model_type = _load_model_type(model_path)
+    if model_type is None:
+        return False
+    multimodal_markers = ("_vl", "vision", "paligemma", "phi4mm")
+    return any(marker in model_type.lower() for marker in multimodal_markers)
+
+
+def _validate_vllm_model_support(model_path: str) -> None:
+    import vllm
+
+    model_type = _load_model_type(model_path)
+    vllm_version = getattr(vllm, "__version__", "unknown")
+    if model_type == "qwen3_vl" and vllm_version == "0.1.2":
+        raise RuntimeError(
+            "Installed vLLM 0.1.2 does not support Qwen3-VL or multimodal inference. "
+            "The script can merge LoRA adapters into a full model cache, but Qwen3-VL still requires a newer vLLM build."
+        )
+
+
+def _sample_to_vllm_request(sample: dict, processor) -> tuple[dict, str, str]:
     question = sample["conversations"][0]["value"]
     images = _load_images(sample["image_paths"], limit_mm_images)
     messages = [
@@ -206,12 +348,13 @@ def _metric_attr(metrics, *names: str) -> float | None:
     return None
 
 
-def _filter_kwargs(callable_obj, kwargs: dict) -> dict:
-    signature = inspect.signature(callable_obj)
-    if any(
+def _filter_llm_kwargs(llm_cls, kwargs: dict) -> dict:
+    signature = inspect.signature(llm_cls)
+    accepts_var_kwargs = any(
         parameter.kind == inspect.Parameter.VAR_KEYWORD
         for parameter in signature.parameters.values()
-    ):
+    )
+    if accepts_var_kwargs:
         return {key: value for key, value in kwargs.items() if value is not None}
 
     accepted = set(signature.parameters)
@@ -221,11 +364,81 @@ def _filter_kwargs(callable_obj, kwargs: dict) -> dict:
             f"[inference_sd_vlm_vllm] ignoring unsupported vLLM args: {', '.join(dropped)}",
             flush=True,
         )
-    return {
-        key: value
-        for key, value in kwargs.items()
-        if key in accepted and value is not None
-    }
+    return {key: value for key, value in kwargs.items() if key in accepted and value is not None}
+
+
+def _build_speculative_config(args) -> dict | None:
+    if not args.enable_speculative_decoding:
+        return None
+    if args.speculative_method == "draft_model":
+        if not args.draft_model:
+            raise ValueError(
+                "--draft-model is required when --enable-speculative-decoding "
+                "and --speculative-method=draft_model are set"
+            )
+
+        draft_model_reference, _ = _resolve_vllm_model_source(args.draft_model, args.dtype)
+        return {
+            "model": draft_model_reference,
+            "method": "draft_model",
+            "num_speculative_tokens": args.spec_k,
+        }
+
+    if args.speculative_method == "ngram":
+        return {
+            "model": "ngram",
+            "method": "ngram",
+            "num_speculative_tokens": args.spec_k,
+            "prompt_lookup_min": args.prompt_lookup_min,
+            "prompt_lookup_max": args.prompt_lookup_max,
+        }
+
+    if args.speculative_method == "suffix":
+        return {
+            "model": "suffix",
+            "method": "suffix",
+            "num_speculative_tokens": args.spec_k,
+            "suffix_decoding_max_tree_depth": args.suffix_max_tree_depth,
+            "suffix_decoding_max_cached_requests": args.suffix_max_cached_requests,
+            "suffix_decoding_max_spec_factor": args.suffix_max_spec_factor,
+            "suffix_decoding_min_token_prob": args.suffix_min_token_prob,
+        }
+
+    raise ValueError(f"Unsupported speculative method: {args.speculative_method}")
+
+
+def _build_attention_config(args):
+    if args.attn_backend == "auto":
+        return None
+
+    from vllm.config.attention import AttentionConfig
+    from vllm.v1.attention.backends.registry import AttentionBackendEnum
+
+    return AttentionConfig(backend=AttentionBackendEnum[args.attn_backend])
+
+
+def _validate_speculative_support(target_model_reference: str, speculative_config: dict | None) -> None:
+    if speculative_config is None:
+        return
+    method = speculative_config.get("method")
+    if method == "draft_model" and _is_multimodal_model(target_model_reference):
+        raise RuntimeError(
+            "Installed vLLM does not support draft-model speculative decoding for multimodal models yet. "
+            "This script can still use --use-prefix-caching or model-free speculative methods such as ngram with Qwen3-VL, "
+            "but draft-model speculative decoding requires a text-only model or future vLLM support."
+        )
+    if method == "suffix":
+        if importlib.util.find_spec("arctic_inference") is None:
+            raise RuntimeError(
+                "Suffix speculative decoding requires arctic-inference==0.1.1 in the current vLLM build."
+            )
+
+
+def _ensure_spawn_start_method() -> None:
+    os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+    current = mp.get_start_method(allow_none=True)
+    if current != "spawn":
+        mp.set_start_method("spawn", force=True)
 
 
 def _derive_ttft_sec(request_output, started: float, finished: float) -> float:
@@ -339,17 +552,31 @@ def _collect_spec_decode_metrics(llm, spec_k: int) -> dict:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="DriveLM inference with vLLM draft-model speculative decoding")
-    parser.add_argument("--target-model", default="outputs/qwen3vl", help="Target model or LoRA adapter directory")
-    parser.add_argument("--draft-model", default="outputs/qwen3vl_draft", help="Draft model or LoRA adapter directory")
+    parser = argparse.ArgumentParser(description="DriveLM inference with vLLM")
+    parser.add_argument("--target-model", default="outputs/qwen3vl", help="Target model or adapter directory")
+    parser.add_argument("--enable-speculative-decoding", action=argparse.BooleanOptionalAction, default=False,
+                        help="Enable vLLM speculative decoding with a draft model")
+    parser.add_argument("--speculative-method", choices=["draft_model", "ngram", "suffix"], default="draft_model",
+                        help="Speculative decoding method to use when enabled")
+    parser.add_argument("--draft-model", default=None, help="Draft model or adapter directory used when speculative decoding is enabled")
+    parser.add_argument("--spec-k", type=int, default=4, help="Number of speculative draft tokens when speculative decoding is enabled")
+    parser.add_argument("--prompt-lookup-min", type=int, default=5,
+                        help="Minimum ngram window for ngram speculative decoding")
+    parser.add_argument("--prompt-lookup-max", type=int, default=5,
+                        help="Maximum ngram window for ngram speculative decoding")
+    parser.add_argument("--suffix-max-tree-depth", type=int, default=24,
+                        help="Maximum suffix tree depth for suffix speculative decoding")
+    parser.add_argument("--suffix-max-cached-requests", type=int, default=10000,
+                        help="Maximum number of cached requests for suffix speculative decoding")
+    parser.add_argument("--suffix-max-spec-factor", type=float, default=1.0,
+                        help="Maximum speculative factor for suffix speculative decoding")
+    parser.add_argument("--suffix-min-token-prob", type=float, default=0.1,
+                        help="Minimum token probability for suffix speculative decoding")
     parser.add_argument("--data", default="datasets/DriveLM_nuScenes/split/val", help="Dataset path created by load_from_disk")
     parser.add_argument("--output", default="outputs/qwen3vl/infer_results_sd_vlm_vllm.json", help="Output JSON path")
     parser.add_argument("--max-new-tokens", type=int, default=128, help="Max new tokens per sample")
-    parser.add_argument("--spec-k", type=int, default=4, help="Number of draft tokens proposed per speculative step")
-    parser.add_argument("--num-gpus", type=int, default=1, help="Target model tensor parallel size")
-    parser.add_argument("--draft-tensor-parallel-size", type=int, default=None, help="Optional draft model tensor parallel size")
-    parser.add_argument("--max-model-len", type=int, default=16384, help="Maximum target model length")
-    parser.add_argument("--draft-max-model-len", type=int, default=None, help="Optional maximum draft model length")
+    parser.add_argument("--num-gpus", type=int, default=1, help="Number of GPUs for vLLM tensor parallelism")
+    parser.add_argument("--max-model-len", type=int, default=16384, help="Maximum model length")
     parser.add_argument("--start-index", type=int, default=0, help="Start sample index")
     parser.add_argument("--max-samples", type=int, default=None, help="Optional number of samples to run")
     parser.add_argument("--warmup-steps", type=int, default=0, help="Number of leading samples to exclude from aggregate metrics")
@@ -357,7 +584,11 @@ def parse_args():
     parser.add_argument("--metrics-output", default=None, help="Optional JSON path for aggregate and per-sample metrics")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.9, help="vLLM GPU memory utilization")
     parser.add_argument("--dtype", choices=["auto", "float16", "bfloat16", "float32"], default="auto", help="vLLM dtype")
-    parser.add_argument("--max-lora-rank", type=int, default=64, help="Maximum target LoRA rank exposed to vLLM")
+    parser.add_argument("--attn-backend", choices=["auto", "FLASH_ATTN", "FLASHINFER", "TRITON_ATTN", "FLEX_ATTENTION"],
+                        default="auto", help="Explicitly select the vLLM attention backend; auto lets vLLM choose")
+    parser.add_argument("--use-prefix-caching", action=argparse.BooleanOptionalAction, default=None,
+                        help="Enable or disable vLLM prefix caching; omitted uses the vLLM default")
+    parser.add_argument("--max-lora-rank", type=int, default=64, help="Maximum LoRA rank exposed to vLLM")
     parser.add_argument("--max-num-seqs", type=int, default=1, help="Maximum concurrent sequences for vLLM")
     parser.add_argument("--limit-mm-images", type=int, default=6, help="Number of DriveLM camera images per prompt")
     parser.add_argument("--parallel-drafting", action="store_true", help="Enable vLLM parallel drafting when supported")
@@ -376,36 +607,29 @@ def parse_args():
 
 
 def main():
+    _ensure_spawn_start_method()
+
     args = parse_args()
 
-    from datasets import load_from_disk
-    from tqdm import tqdm
-    from transformers import AutoProcessor
+    model_reference, processor_source = _resolve_vllm_model_source(args.target_model, args.dtype)
+    speculative_config = _build_speculative_config(args)
 
-    target_model, target_lora_path, target_processor_source = _resolve_model_and_lora(args.target_model)
-    draft_model, draft_lora_path, _ = _resolve_model_and_lora(args.draft_model)
-
-    if draft_lora_path is not None:
-        message = (
-            "[inference_sd_vlm_vllm] --draft-model is a LoRA adapter; using its "
-            "base model in vLLM speculative_config. Target LoRA is still applied "
-            "during verification through LoRARequest."
-        )
-        if not args.allow_draft_lora_base_fallback:
-            raise ValueError(message)
-        print(message, flush=True)
+    _validate_vllm_model_support(model_reference)
+    _validate_speculative_support(model_reference, speculative_config)
+    if speculative_config is not None:
+        _validate_vllm_model_support(speculative_config["model"])
 
     from vllm import LLM
 
     processor = AutoProcessor.from_pretrained(
-        target_processor_source,
+        processor_source,
         trust_remote_code=True,
         local_files_only=True,
+        use_fast=False,
     )
-    generation_config = _load_generation_config(target_processor_source)
+    generation_config = _load_generation_config(processor_source)
     sampling_params = _build_sampling_params(args, generation_config)
-    lora_request = _build_lora_request(target_lora_path)
-    speculative_config = _build_speculative_config(args, draft_model)
+    attention_config = _build_attention_config(args)
 
     llm_kwargs = {
         "model": target_model,
@@ -416,14 +640,11 @@ def main():
         "max_model_len": args.max_model_len,
         "gpu_memory_utilization": args.gpu_memory_utilization,
         "max_num_seqs": args.max_num_seqs,
-        "limit_mm_per_prompt": {"image": args.limit_mm_images},
-        "disable_chunked_mm_input": True,
-        "enable_chunked_prefill": args.enable_chunked_prefill,
-        "enforce_eager": args.enforce_eager,
+        "attention_config": attention_config,
+        "enable_prefix_caching": args.use_prefix_caching,
         "speculative_config": speculative_config,
-        "enable_lora": target_lora_path is not None,
-        "max_loras": 1 if target_lora_path else None,
-        "max_lora_rank": args.max_lora_rank if target_lora_path else None,
+        "enforce_eager": args.enforce_eager,
+        "disable_log_stats": not (args.metrics or args.metrics_output),
     }
     llm = LLM(**_filter_kwargs(LLM, llm_kwargs))
 

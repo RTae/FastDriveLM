@@ -7,18 +7,29 @@
 ## Installation
 1. Install Python dependencies and set up virtual environment
 ```bash
-uv sync --no-install-local --no-build-isolation
+uv sync
 ```
 
-2. Install SpasSageAttn for the SpargeAttn backend
+2. Optional: install the local sparse-attention extension if you want the custom speculative VLM path with SpargeAttn prefill
+
+Preferred `uv` path:
+
+```bash
+uv sync --extra sparse-attn
+```
+
+If you only want the local extension package without a full extra sync, use:
+
 ```bash
 uv pip install --python .venv/bin/python -e ./spas_sage_attn
 ```
 
-3. Install vLLM (using uv add direclty didnt work)
-```bash
-uv pip install vllm --torch-backend=auto
-```
+Notes:
+
+- `spas_sage_attn` is not needed for the plain vLLM workflow.
+- `spas_sage_attn` is needed for the custom speculative VLM path documented below.
+- `sageattention==1.0.6` is part of the main project dependencies and is used for decode and verify in the custom speculative VLM path.
+- Building the sparse-attention extension needs CUDA, `torch`, `ninja`, and enough free disk space for temporary build artifacts.
 
 ## How to enter the virtual environment
 ```bash
@@ -85,257 +96,230 @@ after running this script, the data will be organized as follows:
 
 ## Run inference
 
-### Performance comparison
+There are two active inference tracks in this repo:
 
-Both scripts write metrics in the same JSON schema, so you can compare them directly.
+- `tools/inference_sd_vlm_vllm.py`: the vLLM track, for plain vLLM features such as attention backend selection, prefix caching, and supported speculative modes.
+- `tools/inference_custom_sd_vlm.py`: the custom speculative VLM track, using SpargeAttn for supported prefill cases and SageAttention for decode and verify.
 
-1. Run standard HuggingFace inference and save metrics:
+The custom speculative VLM path is the one that matches the current sparse-attention direction of this repo.
+
+### Runtime environment for vLLM
+
+Use the project virtual environment and export the CUDA/Torch library paths before running either vLLM script.
 
 ```bash
-python tools/inference.py \
-    --model-path outputs/qwen3vl \
-    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results.json \
-    --metrics \
-    --max-samples 10 \
-    --metrics-output outputs/qwen3vl/metrics_baseline.json
+export PATH="$PWD/.venv/bin:$PATH"
+export LD_LIBRARY_PATH="$PWD/.venv/lib/python3.12/site-packages/nvidia/cu13/lib:$PWD/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:$PWD/.venv/lib/python3.12/site-packages/torch/lib:${LD_LIBRARY_PATH:-}"
 ```
 
-2. Run SSD speculative-decoding inference and save metrics:
+### vLLM script
+
+`tools/inference_sd_vlm_vllm.py` is the main vLLM entrypoint for this repo.
+It runs the vLLM track on the target model.
+
+Optional runtime features:
+
+- `--attn-backend auto|FLASH_ATTN|FLASHINFER|TRITON_ATTN|FLEX_ATTENTION`: explicitly select the vLLM attention backend.
+- `--use-prefix-caching` / `--no-use-prefix-caching`: explicitly enable or disable vLLM prefix caching.
+- `--enable-speculative-decoding --speculative-method ngram --spec-k <int>`: enable ngram-based speculative decoding.
+- `--enable-speculative-decoding --speculative-method draft_model --draft-model <path> --spec-k <int>`: enable draft-model speculative decoding when the installed vLLM build and model type support it.
+- `--enable-speculative-decoding --speculative-method suffix ...`: enable suffix decoding when the extra dependency is installed.
+
+Current status with `vllm 0.19.1`:
+
+- plain vLLM inference works
+- prefix caching works
+- `ngram` speculative decoding works on Qwen3-VL
+- draft-model speculative decoding is not supported for multimodal models such as Qwen3-VL
+- `suffix` speculative decoding requires `arctic-inference==0.1.1`
+
+In practice, the common workflow is:
+
+- use `tools/inference_sd_vlm_vllm.py` directly for a single vLLM smoke or full run
+- use `scripts/run_vllm_report.sh` when you want baseline + vLLM ablation runs + one summary table
+- use `tools/inference_custom_sd_vlm.py` when you want the custom speculative VLM runtime with SpargeAttn prefill and SageAttention decode/verify
+
+#### Main smoke test
+
+Plain vLLM smoke test.
 
 ```bash
-python tools/inference_ssd_vlm.py \
+python tools/inference_sd_vlm_vllm.py \
     --target-model outputs/qwen3vl \
-    --draft-model outputs/qwen3vl_draft \
     --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_ssd.json \
+    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_base_smoke.json \
     --metrics \
+    --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_base_smoke.json \
     --max-samples 10 \
-    --metrics-output outputs/qwen3vl/metrics_ssd.json
+    --max-new-tokens 64
 ```
 
-3. Compare the two `summary` blocks side by side:
+#### Main full test
+
+Run the same script on the full validation split.
 
 ```bash
-python - <<'PY'
-import json, sys
-
-def load(path):
-    with open(path) as f:
-        return json.load(f)["summary"]
-
-a = load("outputs/qwen3vl/metrics_baseline.json")
-b = load("outputs/qwen3vl/metrics_ssd.json")
-keys = [k for k in a if k != "num_samples"]
-print(f"{'metric':<45} {'baseline':>14} {'ssd':>14}")
-print("-" * 75)
-for k in keys:
-    print(f"{k:<45} {a[k]:>14.4f} {b[k]:>14.4f}")
-PY
-```
-
-Both metrics files share the same keys:
-`ttft_sec`, `latency_sec`, `prefill_throughput_tok_per_sec`, `decode_throughput_tok_per_sec`,
-`end_to_end_throughput_tok_per_sec`, `runner_decode_throughput_tok_per_sec`,
-`avg_target_step_time_ms`, `avg_target_verify_time_ms`.
-
-### vLLM baseline and speculative-decoding speed test
-
-Run this section on a GPU machine with enough VRAM for Qwen3-VL and vLLM. Do not run it on a laptop without a GPU or with limited RAM.
-
-The speed test compares:
-
-- baseline: `tools/inference_vllm.py`
-- candidate: `tools/inference_sd_vlm_vllm.py` with vLLM draft-model speculative decoding
-
-Both commands use the same validation split, sample count, output-token limit, and warm-up exclusion. The speculative run should be considered a speedup only if the comparison command passes.
-
-1. Run the vLLM baseline:
-
-```bash
-python3 tools/inference_vllm.py \
-    --model-path outputs/qwen3vl \
-    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_vllm.json \
-    --metrics \
-    --metrics-output outputs/qwen3vl/metrics_vllm.json \
-    --max-new-tokens 128 \
-    --max-samples 50 \
-    --warmup-steps 5
-```
-
-2. Run vLLM speculative decoding with the 2B draft model:
-
-```bash
-python3 tools/inference_sd_vlm_vllm.py \
+python tools/inference_sd_vlm_vllm.py \
     --target-model outputs/qwen3vl \
-    --draft-model outputs/qwen3vl_draft \
     --data datasets/DriveLM_nuScenes/split/val \
     --output outputs/qwen3vl/infer_results_sd_vlm_vllm.json \
     --metrics \
     --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm.json \
-    --max-new-tokens 128 \
-    --max-samples 50 \
-    --warmup-steps 5 \
-    --spec-k 4
+    --max-new-tokens 128
 ```
 
-3. Check that speculative decoding actually sped up inference:
+### Ablation runner
+
+If you want one command that runs the baseline plus the vLLM ablation modes and prints a summary table at the end, use the shell wrapper:
 
 ```bash
-python3 tools/compare_inference_speed.py \
-    --baseline outputs/qwen3vl/metrics_vllm.json \
-    --candidate outputs/qwen3vl/metrics_sd_vlm_vllm.json \
-    --min-speedup 1.01
+scripts/run_vllm_report.sh
 ```
 
-The comparison uses `avg_latency_sec` as the pass/fail metric. It also prints end-to-end throughput, decode throughput, and speculative acceptance metrics when vLLM exposes them. If this command fails, speculative decoding did not speed up the tested setup; try increasing `--max-samples`, changing `--spec-k` such as `2`, `4`, or `6`, or improving the draft model.
+#### Smoke test
 
-You can run the same test through Make:
+The defaults already cover the common smoke setup:
 
 ```bash
-make test_vllm_spec_speedup \
-    OUTPUT_MODEL=./outputs/qwen3vl \
-    DRAFT_MODEL=./outputs/qwen3vl_draft \
-    MAX_SAMPLES=50 \
-    MAX_NEW_TOKENS=128 \
-    WARMUP_STEPS=5 \
-    SPEC_K=4 \
-    MIN_SPEEDUP=1.01
+scripts/run_vllm_report.sh \
+    --run-label smoke \
+    --max-samples 10 \
+    --max-new-tokens 64
 ```
 
-### Ablation study
-#### Baseline
+#### Full test
 
-`inference.py` exposes three feature flags for ablation experiments:
-
-| Flag | Type | Default | Effect |
-|------|------|---------|--------|
-| `--attn-implementation` | choice | `auto` | Switch attention backend: `eager`, `sdpa`, or `flash_attention_2` |
-| `--torch-compile` | flag | off | Wrap the model with `torch.compile` before inference |
-| `--warmup-steps N` | int | `0` | Exclude the first N samples from aggregate metrics (GPU warm-up) |
-
-**Example — compare attention backends:**
+Run the full validation split and write `*_full.json` metrics files:
 
 ```bash
-for ATTN in eager sdpa flash_attention_2; do
-  python tools/inference.py \
-      --model-path outputs/qwen3vl \
-      --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
-      --data datasets/DriveLM_nuScenes/split/val \
-      --output outputs/qwen3vl/infer_results_${ATTN}.json \
-      --metrics \
-      --metrics-output outputs/qwen3vl/metrics_${ATTN}.json \
-      --attn-implementation $ATTN \
-      --warmup-steps 2 \
-      --max-samples 20
-done
+scripts/run_vllm_report.sh \
+    --full-test \
+    --run-label full \
+    --max-new-tokens 128
 ```
 
-**Example — measure the effect of `torch.compile`:**
+This wrapper runs the Hugging Face baseline, then the following vLLM ablation modes into `outputs/qwen3vl/`, and prints a final summary table from the generated metrics files:
+
+- `base`: plain vLLM
+- `prefix`: plain vLLM with `--use-prefix-caching`
+- `spec`: ngram speculative decoding
+- `full`: ngram speculative decoding with `--use-prefix-caching`
+
+You can also run only a subset:
 
 ```bash
-# Without compile
+scripts/run_vllm_report.sh \
+    --modes prefix full \
+    --run-label smoke \
+    --max-samples 10 \
+    --max-new-tokens 64
+```
+
+`ngram` speculative decoding disables async scheduling in the current vLLM build. That warning is expected.
+
+Draft-model speculative decoding is still blocked for multimodal Qwen3-VL, and suffix decoding needs `arctic-inference==0.1.1` before it can be tested.
+
+### Custom speculative VLM script
+
+`tools/inference_custom_sd_vlm.py` is the custom speculative VLM entrypoint.
+
+Current behavior:
+
+- prefill uses `spas_sage_attn` when the incoming prefill shape matches the supported single-sequence case
+- other prefill shapes fall back to `sageattention`
+- decode uses `sageattention`
+- verify uses `sageattention`
+
+This path is not the async 2-GPU SSD mode. It is a colocated speculative VLM path built from the same codebase, currently run in eager mode.
+
+#### Smoke test
+
+```bash
+python tools/inference_custom_sd_vlm.py \
+    --target-model outputs/qwen3vl \
+    --draft-model outputs/qwen3vl_draft \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_custom_sd_vlm_sparge_sage_smoke.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/infer_results_custom_sd_vlm_sparge_sage_smoke.metrics.json \
+    --max-samples 10 \
+    --max-new-tokens 64
+```
+
+#### Full test
+
+```bash
+python tools/inference_custom_sd_vlm.py \
+    --target-model outputs/qwen3vl \
+    --draft-model outputs/qwen3vl_draft \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results_custom_sd_vlm_sparge_sage.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/infer_results_custom_sd_vlm_sparge_sage.metrics.json \
+    --max-new-tokens 128
+```
+
+Use this path when your goal is: speculative decoding with VLM plus sparse attention on prefill and SageAttention on decode.
+
+### Baseline script
+
+`tools/inference.py` is the baseline runner.
+
+#### Smoke test
+
+```bash
 python tools/inference.py \
     --model-path outputs/qwen3vl \
     --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
     --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_no_compile.json \
-    --metrics --metrics-output outputs/qwen3vl/metrics_no_compile.json \
-    --warmup-steps 2 --max-samples 20
+    --output outputs/qwen3vl/infer_results_baseline_smoke.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/metrics_baseline_smoke.json \
+    --max-samples 10 \
+    --max-new-tokens 64
+```
 
-# With compile
+#### Full test
+
+```bash
 python tools/inference.py \
     --model-path outputs/qwen3vl \
     --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
     --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_compile.json \
-    --metrics --metrics-output outputs/qwen3vl/metrics_compile.json \
-    --torch-compile \
-    --warmup-steps 2 --max-samples 20
+    --output outputs/qwen3vl/infer_results_baseline_full.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl/metrics_baseline_full.json \
+    --max-new-tokens 128
 ```
 
-> **Note on `--warmup-steps`:** per-sample metrics are always saved for every sample; only the aggregate `summary` excludes the first N samples, so you can still inspect the warm-up entries in the JSON output.
+### Compare vLLM against the baseline
 
-#### SSD
-
-`inference_ssd_vlm.py` exposes three feature flags for ablation experiments:
-
-| Flag | Type | Default | Effect |
-|------|------|---------|--------|
-| `--attn-backend` | choice | `flash` | Attention backend: `flash` or `sparge` (SpargeAttn sparse attention) |
-| `--use-prefix-caching` / `--no-prefix-caching` | flag | on | Enable/disable prefix (KV) caching. Automatically disabled when `--attn-backend=sparge` |
-| `--sparge-topk K` | float | `0.5` | SpargeAttn sparsity ratio in (0, 1]. Only used with `--attn-backend sparge` |
-| `--warmup-steps N` | int | `0` | Exclude the first N samples from aggregate metrics (GPU warm-up) |
-
-**Example — compare attention backends:**
+The vLLM script and the baseline script write metrics in the same JSON schema, so you can compare the `summary` blocks directly. The example below compares the `full` ablation smoke run against the baseline smoke test.
 
 ```bash
-for ATTN in flash sparge; do
-  python tools/inference_ssd_vlm.py \
-      --target-model outputs/qwen3vl \
-      --draft-model outputs/qwen3vl_draft \
-      --data datasets/DriveLM_nuScenes/split/val \
-      --output outputs/qwen3vl/infer_results_ssd_${ATTN}.json \
-      --metrics \
-      --metrics-output outputs/qwen3vl/metrics_ssd_${ATTN}.json \
-      --attn-backend $ATTN \
-      --warmup-steps 2 \
-      --max-samples 20
-done
+python - <<'PY'
+import json
+
+def load(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)["summary"]
+
+new_vllm = load("outputs/qwen3vl/metrics_sd_vlm_vllm_full_smoke.json")
+baseline = load("outputs/qwen3vl/metrics_baseline_smoke.json")
+keys = [k for k in new_vllm if k != "num_samples"]
+print(f"{'metric':<45} {'new_vllm':>14} {'baseline':>14}")
+print("-" * 79)
+for key in keys:
+    print(f"{key:<45} {new_vllm[key]:>14.4f} {baseline[key]:>14.4f}")
+PY
 ```
 
-**Example — measure the effect of prefix caching:**
+`tools/inference_vllm.py` is still available as a separate pure-vLLM reference script, but the intended comparison here is:
 
-```bash
-# Without prefix caching
-python tools/inference_ssd_vlm.py \
-    --target-model outputs/qwen3vl \
-    --draft-model outputs/qwen3vl_draft \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_ssd_no_cache.json \
-    --metrics --metrics-output outputs/qwen3vl/metrics_ssd_no_cache.json \
-    --no-prefix-caching \
-    --warmup-steps 2 --max-samples 20
+- baseline: `tools/inference.py`
+- vLLM path: `tools/inference_sd_vlm_vllm.py`
 
-# With prefix caching (default)
-python tools/inference_ssd_vlm.py \
-    --target-model outputs/qwen3vl \
-    --draft-model outputs/qwen3vl_draft \
-    --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_ssd_cache.json \
-    --metrics --metrics-output outputs/qwen3vl/metrics_ssd_cache.json \
-    --use-prefix-caching \
-    --warmup-steps 2 --max-samples 20
-```
-
-**Example — sweep SpargeAttn sparsity ratios:**
-
-```bash
-for TOPK in 0.3 0.5 0.7; do
-  python tools/inference_ssd_vlm.py \
-      --target-model outputs/qwen3vl \
-      --draft-model outputs/qwen3vl_draft \
-      --data datasets/DriveLM_nuScenes/split/val \
-      --output outputs/qwen3vl/infer_results_ssd_sparge${TOPK}.json \
-      --metrics \
-      --metrics-output outputs/qwen3vl/metrics_ssd_sparge${TOPK}.json \
-      --attn-backend sparge \
-      --sparge-topk $TOPK \
-      --warmup-steps 2 \
-      --max-samples 20
-done
-```
-
-Or use the Makefile shortcut for a standard run:
-
-```bash
-make inference_ssd_vlm
-# or override models:
-make inference_ssd_vlm OUTPUT_MODEL=./outputs/qwen3vl DRAFT_MODEL=./outputs/qwen3vl_draft
-```
+`tools/inference_sd_vlm_vllm.py` is the maintained vLLM path documented above. `tools/inference_vllm.py` remains a separate reference script, but it is not the main entrypoint described in this README.
 
 ## Evaluate
 

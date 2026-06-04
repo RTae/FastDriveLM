@@ -237,7 +237,6 @@ class ModelRunner:
             draft_async=self.config.draft_async,
             tp_group=self.tp_pg,
             tp_size=self.num_tp_gpus,
-            attn_backend=config.attn_backend,
             sparge_topk=config.sparge_topk,
         )
         

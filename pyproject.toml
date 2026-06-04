@@ -29,18 +29,24 @@ dependencies = [
     "tiktoken>=0.13.0",
     "xxhash>=3.7.0",
     "einops>=0.8.0",
+    "sageattention==1.0.6",
     "ninja>=1.13.0",
     "nvidia-cusparselt-cu12>=0.7.1",
-    "vllm>=0.22.0",
-    "flash-attn>=2.8.3",
+    "vllm>=0.8.0",
+    "arctic-inference>=0.1.2",
 ]
+
+[project.optional-dependencies]
+sparse-attn = [
+    "spas-sage-attn",
+]
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -54,3 +60,8 @@ default = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
+spas-sage-attn = { path = "spas_sage_attn", editable = true }
+
+[tool.uv.extra-build-dependencies]
+fastdrivelm = ["torch", "ninja"]
+spas-sage-attn = ["torch", "ninja"]
