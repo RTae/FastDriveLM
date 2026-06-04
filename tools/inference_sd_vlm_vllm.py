@@ -463,7 +463,7 @@ def parse_args():
         help="Set VLLM_ATTENTION_BACKEND before importing vLLM",
     )
     parser.add_argument("--use-prefix-caching", action=argparse.BooleanOptionalAction, default=None, help="Enable or disable vLLM prefix caching")
-    parser.add_argument("--enable-chunked-prefill", action=argparse.BooleanOptionalAction, default=False, help="Pass through to vLLM")
+    parser.add_argument("--enable-chunked-prefill", action=argparse.BooleanOptionalAction, default=None, help="Pass through to vLLM")
     parser.add_argument("--enforce-eager", action=argparse.BooleanOptionalAction, default=None, help="Pass through to vLLM when supported")
     parser.add_argument("--max-lora-rank", type=int, default=64, help="Maximum target LoRA rank exposed to vLLM")
 

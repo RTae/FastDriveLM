@@ -238,6 +238,7 @@ python tools/compare_speculative_decoding.py \
     --methods baseline ngram ngram_gpu suffix \
     --max-samples 10 \
     --max-new-tokens 64 \
+    --gpu-memory-utilization 0.3 \
     --warmup-steps 2 \
     --metrics
 ```
@@ -256,11 +257,14 @@ python tools/compare_speculative_decoding.py \
     --medusa-model /path/to/medusa/head-model \
     --max-samples 10 \
     --max-new-tokens 64 \
+    --gpu-memory-utilization 0.3 \
     --warmup-steps 2 \
     --metrics
 ```
 
 If a method is unsupported by your installed vLLM build or incompatible with Qwen3-VL, the comparison runner records the failure and continues by default. Use `--no-continue-on-error` when you want the first failure to stop the run.
+
+If vLLM fails with an error like `Free memory on device cuda:0 ... is less than desired GPU memory utilization`, the GPU is already mostly occupied or the requested KV-cache reservation is too large. Stop the other GPU process first, or lower `--gpu-memory-utilization` further, for example `0.2`. The comparison runner now stops immediately if the baseline cannot start, because speculative speedups cannot be interpreted without a successful baseline.
 
 ### Custom speculative VLM script
 

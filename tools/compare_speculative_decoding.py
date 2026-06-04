@@ -117,8 +117,7 @@ def _build_run_command(args, method: str, output_path: Path, metrics_path: Path)
         cmd.extend(["--num-gpus", str(args.num_gpus)])
     if args.max_model_len != 16384:
         cmd.extend(["--max-model-len", str(args.max_model_len)])
-    if args.gpu_memory_utilization != 0.9:
-        cmd.extend(["--gpu-memory-utilization", str(args.gpu_memory_utilization)])
+    cmd.extend(["--gpu-memory-utilization", str(args.gpu_memory_utilization)])
     if args.dtype != "auto":
         cmd.extend(["--dtype", args.dtype])
     if args.attn_backend != "auto":
@@ -205,7 +204,7 @@ def parse_args():
     parser.add_argument("--skip-missing-model-methods", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--num-gpus", type=int, default=1)
     parser.add_argument("--max-model-len", type=int, default=16384)
-    parser.add_argument("--gpu-memory-utilization", type=float, default=0.9)
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.3)
     parser.add_argument("--dtype", choices=["auto", "float16", "bfloat16", "float32"], default="auto")
     parser.add_argument("--attn-backend", default="auto")
     parser.add_argument("--use-prefix-caching", action=argparse.BooleanOptionalAction, default=None)
@@ -253,6 +252,11 @@ def main():
             _run(cmd)
         except subprocess.CalledProcessError as exc:
             failed[method] = str(exc)
+            if method == "baseline":
+                raise SystemExit(
+                    "Baseline vLLM run failed, so speculative methods cannot be "
+                    "compared reliably. Check the baseline error above first."
+                ) from exc
             if not args.continue_on_error:
                 raise
             print(f"[compare_speculative_decoding] {method} failed: {exc}", flush=True)
