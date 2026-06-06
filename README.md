@@ -24,6 +24,47 @@ If you only want the local extension package without a full extra sync, use:
 uv pip install --python .venv/bin/python -e ./spas_sage_attn
 ```
 
+3. Install vLLM (using uv add direclty didnt work)
+```bash
+uv pip install vllm --torch-backend=auto
+```
+
+4. Install LLM Compressor for INT4/AWQ quantization
+```bash
+uv pip install --no-deps llmcompressor==0.10.0.2
+```
+
+`llmcompressor` is installed as a quantization-time tool instead of a core
+project dependency because the current vLLM lock pins `compressed-tensors`.
+Using `--no-deps` keeps the inference environment stable.
+
+Do not use `uv add llmcompressor` here. `uv add` tries to add llmcompressor to
+the locked project dependency graph, but current llmcompressor releases conflict
+with this repo's `vllm==0.22.0` dependencies. Use the `uv pip install --no-deps`
+command above, or run:
+
+```bash
+make install_quant_deps
+```
+
+The quantization script includes a compatibility shim for the
+`compressed_tensors.utils.match._match_name` vs `match_name` API difference seen
+when `llmcompressor==0.10.0.2` is installed into the vLLM environment with
+`--no-deps`.
+
+Do not use `uv add llmcompressor` here. `uv add` tries to add llmcompressor to
+the locked project dependency graph, but current llmcompressor releases conflict
+with this repo's `vllm==0.22.0` dependencies. Use the `uv pip install --no-deps`
+command above, or run:
+
+```bash
+make install_quant_deps
+```
+
+The quantization script includes a compatibility shim for the
+`compressed_tensors.utils.match._match_name` vs `match_name` API difference seen
+when `llmcompressor==0.10.0.2` is installed into the vLLM environment with
+`--no-deps`.
 Notes:
 
 - `spas_sage_attn` is not needed for the plain vLLM workflow.
@@ -96,58 +137,87 @@ after running this script, the data will be organized as follows:
 
 ## Run inference
 
-There are two active inference tracks in this repo:
+### Quantize Qwen3-VL with LLM Compressor
 
-- `tools/inference_sd_vlm_vllm.py`: the vLLM track, for plain vLLM features such as attention backend selection, prefix caching, and supported speculative modes.
-- `tools/inference_custom_sd_vlm.py`: the custom speculative VLM track, using SpargeAttn for supported prefill cases and SageAttention for decode and verify.
-
-The custom speculative VLM path is the one that matches the current sparse-attention direction of this repo.
-
-### Runtime environment for vLLM
-
-Use the project virtual environment and export the CUDA/Torch library paths before running either vLLM script.
+The fine-tuned Qwen3-VL checkpoints in this repo are LoRA adapters. For INT4
+AWQ inference, first merge the adapter into the local base model, then save a
+compressed `compressed-tensors` checkpoint for vLLM:
 
 ```bash
-export PATH="$PWD/.venv/bin:$PATH"
-export LD_LIBRARY_PATH="$PWD/.venv/lib/python3.12/site-packages/nvidia/cu13/lib:$PWD/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:$PWD/.venv/lib/python3.12/site-packages/torch/lib:${LD_LIBRARY_PATH:-}"
+python tools/quantize_qwen3vl_awq.py \
+    --adapter-path outputs/qwen3vl \
+    --base-model base_models/Qwen/Qwen3-VL-8B-Instruct \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output-dir outputs/qwen3vl_awq_int4 \
+    --num-calibration-samples 256 \
+    --max-seq-length 2048 \
+    --scheme W4A16_ASYM \
+    --awq-mapping-profile qwen3vl
 ```
 
-### vLLM script
+If `outputs/qwen3vl/adapter_config.json` already points at the local base model,
+`--base-model` can be omitted. If it points at `Qwen/Qwen3-VL-8B-Instruct`, the
+script automatically prefers `base_models/Qwen/Qwen3-VL-8B-Instruct` when that
+directory exists.
 
-`tools/inference_sd_vlm_vllm.py` is the main vLLM entrypoint for this repo.
-It runs the vLLM track on the target model.
+If quantization fails with LoRA shape mismatches like `4096` vs `2048`, the
+adapter and base model sizes do not match. For example, the 8B Qwen3-VL adapter
+must use `base_models/Qwen/Qwen3-VL-8B-Instruct`; the 2B draft adapter must use
+`base_models/Qwen/Qwen3-VL-2B-Instruct`.
 
-Optional runtime features:
+The default `--awq-mapping-profile qwen3vl` avoids llmcompressor's default
+`v_proj -> o_proj` smoothing pair, which can be incompatible with Qwen3-VL GQA
+projection shapes and produces repeated `skipping AWQ ... incompatible balance
+layers` warnings. The affected Linear layers are still included in the final
+INT4 quantization pass.
 
-- `--attn-backend auto|FLASH_ATTN|FLASHINFER|TRITON_ATTN|FLEX_ATTENTION`: explicitly select the vLLM attention backend.
-- `--use-prefix-caching` / `--no-use-prefix-caching`: explicitly enable or disable vLLM prefix caching.
-- `--enable-speculative-decoding --speculative-method ngram --spec-k <int>`: enable ngram-based speculative decoding.
-- `--enable-speculative-decoding --speculative-method draft_model --draft-model <path> --spec-k <int>`: enable draft-model speculative decoding when the installed vLLM build and model type support it.
-- `--enable-speculative-decoding --speculative-method suffix ...`: enable suffix decoding when the extra dependency is installed.
-
-Current status with `vllm 0.19.1`:
-
-- plain vLLM inference works
-- prefix caching works
-- `ngram` speculative decoding works on Qwen3-VL
-- draft-model speculative decoding is not supported for multimodal models such as Qwen3-VL
-- `suffix` speculative decoding requires `arctic-inference==0.1.1`
-
-In practice, the common workflow is:
-
-- use `tools/inference_sd_vlm_vllm.py` directly for a single vLLM smoke or full run
-- use `scripts/run_vllm_report.sh` when you want baseline + vLLM ablation runs + one summary table
-- use `tools/inference_custom_sd_vlm.py` when you want the custom speculative VLM runtime with SpargeAttn prefill and SageAttention decode/verify
-
-#### Main smoke test
-
-Plain vLLM smoke test.
+Run the quantized model directly with the existing vLLM inference script:
 
 ```bash
-python tools/inference_sd_vlm_vllm.py \
-    --target-model outputs/qwen3vl \
+python tools/inference_vllm.py \
+    --model-path outputs/qwen3vl_awq_int4 \
+    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
     --data datasets/DriveLM_nuScenes/split/val \
-    --output outputs/qwen3vl/infer_results_sd_vlm_vllm_base_smoke.json \
+    --output outputs/qwen3vl_awq_int4/infer_results_vllm.json \
+    --metrics \
+    --metrics-output outputs/qwen3vl_awq_int4/metrics_vllm.json \
+    --warmup-steps 2 \
+    --max-samples 20
+```
+
+To run unquantized and quantized vLLM inference back-to-back, evaluate both, and
+write a compact speed/accuracy comparison:
+
+```bash
+python tools/compare_quantized_inference.py \
+    --baseline-model outputs/qwen3vl \
+    --baseline-base-model base_models/Qwen/Qwen3-VL-8B-Instruct \
+    --quantized-model outputs/qwen3vl_awq_int4 \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --refs datasets/DriveLM_nuScenes/refs/val_cot.json \
+    --max-samples 20 \
+    --warmup-steps 2
+```
+
+Makefile shortcuts:
+
+```bash
+make quantize_qwen3vl_awq
+make compare_qwen3vl_quant
+```
+
+### Performance comparison
+
+Both scripts write metrics in the same JSON schema, so you can compare them directly.
+
+1. Run standard HuggingFace inference and save metrics:
+
+```bash
+python tools/inference.py \
+    --model-path outputs/qwen3vl \
+    --collate_fn drivelm_nus_qwen3vl_collate_fn_val \
+    --data datasets/DriveLM_nuScenes/split/val \
+    --output outputs/qwen3vl/infer_results.json \
     --metrics \
     --metrics-output outputs/qwen3vl/metrics_sd_vlm_vllm_base_smoke.json \
     --max-samples 10 \

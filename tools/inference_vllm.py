@@ -336,7 +336,7 @@ def build_llm(args, model_reference: str, lora_path: str | None):
         "tokenizer": args.processor_path or model_reference,
         "trust_remote_code": resolve_trust_remote_code(args, model_reference),
         "dtype": DTYPES[args.dtype],
-        "device": args.device,
+        # "device": args.device,
         "max_model_len": args.max_model_len,
         "tensor_parallel_size": args.tensor_parallel_size,
         "gpu_memory_utilization": args.gpu_memory_utilization,
@@ -456,6 +456,36 @@ def main(args):
     if trust_remote_code:
         processor_kwargs["trust_remote_code"] = True
     processor = AutoProcessor.from_pretrained(processor_source, **processor_kwargs)
+    # Ensure the tokenizer does not silently truncate multimodal prompts
+    # which causes a mismatch between the image token counts in text
+    # and the tokenized `input_ids` (see vLLM error about truncation).
+    # Best-effort: if a tokenizer is available, increase its max length
+    # to at least the configured `--max-model-len` and avoid truncation.
+    try:
+        tk = getattr(processor, "tokenizer", None)
+        if tk is not None:
+            # Align tokenizer max length with vLLM context window to avoid
+            # accidental truncation inside HF processor calls.
+            if hasattr(tk, "model_max_length"):
+                try:
+                    tk.model_max_length = max(int(getattr(tk, "model_max_length", 0)), int(args.max_model_len))
+                except Exception:
+                    tk.model_max_length = int(args.max_model_len)
+
+            # Some HF tokenizers carry init kwargs that may enable truncation
+            # by default; remove any explicit truncation flag if present.
+            if hasattr(tk, "init_kwargs") and isinstance(tk.init_kwargs, dict):
+                tk.init_kwargs.pop("truncation", None)
+
+            # If the tokenizer supports a mistral regex fix, enable it.
+            if "fix_mistral_regex" in getattr(tk, "__dict__", {}):
+                try:
+                    tk.fix_mistral_regex = True
+                except Exception:
+                    pass
+    except Exception:
+        # Don't fail if we cannot access or modify the tokenizer internals.
+        pass
     generation_config = load_generation_config(generation_source)
 
     llm = build_llm(args, model_reference, lora_path)
@@ -581,7 +611,7 @@ def parse_args():
         default=None,
         help="Override trust_remote_code. Defaults to auto for Qwen and Phi models.",
     )
-    parser.add_argument("--device", default="cuda", help="Device passed through to vLLM when supported.")
+    # parser.add_argument("--device", default="cuda", help="Device passed through to vLLM when supported.")
     parser.add_argument(
         "--attn-implementation",
         choices=VLLM_ATTN_IMPLEMENTATIONS,
