@@ -43,6 +43,20 @@ The quantization script includes a compatibility shim for the
 when `llmcompressor==0.10.0.2` is installed into the vLLM environment with
 `--no-deps`.
 
+Do not use `uv add llmcompressor` here. `uv add` tries to add llmcompressor to
+the locked project dependency graph, but current llmcompressor releases conflict
+with this repo's `vllm==0.22.0` dependencies. Use the `uv pip install --no-deps`
+command above, or run:
+
+```bash
+make install_quant_deps
+```
+
+The quantization script includes a compatibility shim for the
+`compressed_tensors.utils.match._match_name` vs `match_name` API difference seen
+when `llmcompressor==0.10.0.2` is installed into the vLLM environment with
+`--no-deps`.
+
 ## How to enter the virtual environment
 ```bash
 source .venv/bin/activate
