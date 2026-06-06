@@ -122,7 +122,8 @@ python tools/quantize_qwen3vl_awq.py \
     --output-dir outputs/qwen3vl_awq_int4 \
     --num-calibration-samples 256 \
     --max-seq-length 2048 \
-    --scheme W4A16_ASYM
+    --scheme W4A16_ASYM \
+    --awq-mapping-profile qwen3vl
 ```
 
 If `outputs/qwen3vl/adapter_config.json` already points at the local base model,
@@ -134,6 +135,12 @@ If quantization fails with LoRA shape mismatches like `4096` vs `2048`, the
 adapter and base model sizes do not match. For example, the 8B Qwen3-VL adapter
 must use `base_models/Qwen/Qwen3-VL-8B-Instruct`; the 2B draft adapter must use
 `base_models/Qwen/Qwen3-VL-2B-Instruct`.
+
+The default `--awq-mapping-profile qwen3vl` avoids llmcompressor's default
+`v_proj -> o_proj` smoothing pair, which can be incompatible with Qwen3-VL GQA
+projection shapes and produces repeated `skipping AWQ ... incompatible balance
+layers` warnings. The affected Linear layers are still included in the final
+INT4 quantization pass.
 
 Run the quantized model directly with the existing vLLM inference script:
 

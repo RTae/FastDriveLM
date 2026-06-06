@@ -428,20 +428,59 @@ def _import_llmcompressor_oneshot():
     )
 
 
-def run_awq_oneshot(args, model, processor, dataset, processor_source: str):
-    oneshot = _import_llmcompressor_oneshot()
-
+def _import_awq_classes():
     try:
         from llmcompressor.modifiers.awq import AWQModifier
     except ImportError:
         from llmcompressor.modifiers.awq.base import AWQModifier
 
+    try:
+        from llmcompressor.modifiers.awq import AWQMapping
+    except ImportError:
+        from llmcompressor.modifiers.awq.mappings import AWQMapping
+
+    return AWQModifier, AWQMapping
+
+
+def _build_awq_mappings(args, AWQMapping):
+    if args.awq_mapping_profile == "auto":
+        return None
+
+    if args.awq_mapping_profile == "qwen3vl":
+        return [
+            AWQMapping(
+                "re:.*input_layernorm$",
+                ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
+            ),
+            AWQMapping(
+                "re:.*post_attention_layernorm$",
+                ["re:.*gate_proj$", "re:.*up_proj$"],
+            ),
+            AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
+        ]
+
+    raise ValueError(f"Unsupported --awq-mapping-profile: {args.awq_mapping_profile}")
+
+
+def run_awq_oneshot(args, model, processor, dataset, processor_source: str):
+    oneshot = _import_llmcompressor_oneshot()
+    AWQModifier, AWQMapping = _import_awq_classes()
+
     from llmcompressor.modifiers.quantization import QuantizationModifier
+
+    awq_mappings = _build_awq_mappings(args, AWQMapping)
+    if awq_mappings is not None:
+        print(
+            f"[quantize] using AWQ mapping profile: {args.awq_mapping_profile} "
+            "(skips incompatible v_proj->o_proj smoothing for Qwen3-VL GQA)",
+            flush=True,
+        )
 
     recipe = [
         AWQModifier(
             duo_scaling=args.duo_scaling,
             n_grid=args.awq_grid_size,
+            mappings=awq_mappings,
         ),
         QuantizationModifier(
             scheme=args.scheme,
@@ -603,6 +642,16 @@ def parse_args():
         choices=["true", "false", "both"],
         default="false",
         help="AWQ duo_scaling setting. Qwen3-VL examples commonly use false.",
+    )
+    parser.add_argument(
+        "--awq-mapping-profile",
+        choices=["qwen3vl", "auto"],
+        default="qwen3vl",
+        help=(
+            "AWQ smoothing mappings. qwen3vl skips the default v_proj->o_proj "
+            "mapping because Qwen3-VL GQA can make those layer shapes "
+            "incompatible; auto uses llmcompressor's inferred mappings."
+        ),
     )
     parser.add_argument("--awq-grid-size", type=int, default=20)
     parser.add_argument(

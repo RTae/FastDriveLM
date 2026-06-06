@@ -169,19 +169,19 @@ if SAGE2PP_ENABLED:
 
 ext_modules = []
 
-run_instantiations("csrc/qattn/instantiations_sm80")
-run_instantiations("csrc/qattn/instantiations_sm89")
-run_instantiations("csrc/qattn/instantiations_sm90")
+run_instantiations("spas_sage_attn/csrc/qattn/instantiations_sm80")
+run_instantiations("spas_sage_attn/csrc/qattn/instantiations_sm89")
+run_instantiations("spas_sage_attn/csrc/qattn/instantiations_sm90")
 
 sources = [
-    "csrc/qattn/pybind.cpp",
-    "csrc/qattn/qk_int_sv_f16_cuda_sm80.cu",
-    "csrc/qattn/qk_int_sv_f8_cuda_sm89.cu",
-] + get_instantiations("csrc/qattn/instantiations_sm80") + get_instantiations("csrc/qattn/instantiations_sm89")
+    "spas_sage_attn/csrc/qattn/pybind.cpp",
+    "spas_sage_attn/csrc/qattn/qk_int_sv_f16_cuda_sm80.cu",
+    "spas_sage_attn/csrc/qattn/qk_int_sv_f8_cuda_sm89.cu",
+] + get_instantiations("spas_sage_attn/csrc/qattn/instantiations_sm80") + get_instantiations("spas_sage_attn/csrc/qattn/instantiations_sm89")
 
 if HAS_SM90:
-    sources += ["csrc/qattn/qk_int_sv_f8_cuda_sm90.cu", ]
-    sources += get_instantiations("csrc/qattn/instantiations_sm90")
+    sources += ["spas_sage_attn/csrc/qattn/qk_int_sv_f8_cuda_sm90.cu", ]
+    sources += get_instantiations("spas_sage_attn/csrc/qattn/instantiations_sm90")
 
 qattn_extension = CUDAExtension(
     name="spas_sage_attn._qattn",
@@ -196,7 +196,7 @@ ext_modules.append(qattn_extension)
 
 fused_extension = CUDAExtension(
     name="spas_sage_attn._fused",
-    sources=["csrc/fused/pybind.cpp", "csrc/fused/fused.cu"],
+    sources=["spas_sage_attn/csrc/fused/pybind.cpp", "spas_sage_attn/csrc/fused/fused.cu"],
     extra_compile_args={
         "cxx": CXX_FLAGS,
         "nvcc": NVCC_FLAGS,
